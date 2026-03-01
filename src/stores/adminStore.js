@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { format } from 'date-fns';
+import { DEFAULT_SERVICE_CATEGORIES } from '../data/rosters';
 
 // ── Default seed data (matches original rosters.js) ──────────────────────────
 const DEFAULT_MECHANICS = [
@@ -55,6 +56,9 @@ export const useAdminStore = create(
       shopHoursStart: '08:00',
       shopHoursEnd: '17:00',
       slotCapacity: 5,
+
+      // Dynamic service categories
+      serviceCategories: DEFAULT_SERVICE_CATEGORIES,
 
       // Admin access
       adminMode: false,
@@ -143,6 +147,58 @@ export const useAdminStore = create(
         if (fd) get().addAuditLog('Removed Front Desk', fd.name);
       },
 
+      // ── Service Category CRUD ────────────────────────────────────────────
+      addCategory: (name) => {
+        set((s) => ({
+          serviceCategories: [...s.serviceCategories, { name, items: [] }],
+        }));
+        get().addAuditLog('Added Service Category', name);
+      },
+      updateCategory: (oldName, newName) => {
+        set((s) => ({
+          serviceCategories: s.serviceCategories.map((c) =>
+            c.name === oldName ? { ...c, name: newName } : c
+          ),
+        }));
+        get().addAuditLog('Renamed Service Category', `${oldName} → ${newName}`);
+      },
+      removeCategory: (name) => {
+        set((s) => ({
+          serviceCategories: s.serviceCategories.filter((c) => c.name !== name),
+        }));
+        get().addAuditLog('Removed Service Category', name);
+      },
+      addServiceItem: (categoryName, itemName) => {
+        set((s) => ({
+          serviceCategories: s.serviceCategories.map((c) =>
+            c.name === categoryName
+              ? { ...c, items: [...c.items, itemName] }
+              : c
+          ),
+        }));
+        get().addAuditLog('Added Service', `${itemName} (in ${categoryName})`);
+      },
+      updateServiceItem: (categoryName, oldItem, newItem) => {
+        set((s) => ({
+          serviceCategories: s.serviceCategories.map((c) =>
+            c.name === categoryName
+              ? { ...c, items: c.items.map((i) => (i === oldItem ? newItem : i)) }
+              : c
+          ),
+        }));
+        get().addAuditLog('Updated Service', `${oldItem} → ${newItem} (in ${categoryName})`);
+      },
+      removeServiceItem: (categoryName, itemName) => {
+        set((s) => ({
+          serviceCategories: s.serviceCategories.map((c) =>
+            c.name === categoryName
+              ? { ...c, items: c.items.filter((i) => i !== itemName) }
+              : c
+          ),
+        }));
+        get().addAuditLog('Removed Service', `${itemName} (from ${categoryName})`);
+      },
+
       // ── System settings ─────────────────────────────────────────────────
       setLifterBayCount: (n) => {
         set({ lifterBayCount: n });
@@ -173,6 +229,7 @@ export const useAdminStore = create(
             shopHoursStart: get().shopHoursStart,
             shopHoursEnd: get().shopHoursEnd,
             slotCapacity: get().slotCapacity,
+            serviceCategories: get().serviceCategories,
           },
           jobs,
           auditLogs: get().auditLogs,

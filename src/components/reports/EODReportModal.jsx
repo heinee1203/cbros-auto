@@ -1,15 +1,44 @@
-import { useMemo } from 'react';
-import { X, Download, FileText, Car, Wrench, Clock, CheckCircle2, Settings, Package, ClipboardList, BadgeCheck, Printer } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { X, Download, FileText, Car, Wrench, Clock, CheckCircle2, Settings, Package, ClipboardList, BadgeCheck, Printer, Ban, Archive } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore, to12Hour } from '../../stores/jobsStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
 import { useAdminStore } from '../../stores/adminStore';
 
+/**
+ * Parse a "MM/dd/yyyy at hh:mm AM/PM" string into a Date object.
+ */
+const parseDateTimestamp = (str) => {
+  if (!str) return null;
+  const match = str.match(/^(\d{2})\/(\d{2})\/(\d{4}) at (\d{2}):(\d{2}) (AM|PM)$/);
+  if (!match) return null;
+  const [, month, day, year, hours, mins, ampm] = match;
+  let h = parseInt(hours, 10);
+  if (ampm === 'PM' && h !== 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(mins));
+};
+
+/**
+ * Compute actual labor hours from serviceStartedAt → serviceDoneTime.
+ * Returns null if either timestamp is missing or unparseable.
+ */
+const computeActualHours = (job) => {
+  if (!job.serviceStartedAt || !job.serviceDoneTime) return null;
+  const start = parseDateTimestamp(job.serviceStartedAt);
+  const end = parseDateTimestamp(job.serviceDoneTime);
+  if (!start || !end) return null;
+  return Math.max(0, (end - start) / (1000 * 60 * 60));
+};
+
 export default function EODReportModal() {
   const { eodModalOpen, closeEodModal } = useUIStore();
   const jobs = useJobsStore((s) => s.jobs);
+  const closeOutDay = useJobsStore((s) => s.closeOutDay);
   const mechanics = useAdminStore((s) => s.mechanics);
+  const [confirmCloseOut, setConfirmCloseOut] = useState(false);
+  const [closeOutDone, setCloseOutDone] = useState(false);
 
   const today = format(new Date(), 'MM/dd/yyyy');
   const todayISO = format(new Date(), 'yyyy-MM-dd');
@@ -42,13 +71,17 @@ export default function EODReportModal() {
     // Jobs with parts ordered
     const partsOrderedJobs = allJobs.filter((j) => j.partsOrdered);
 
-    // Unassigned jobs
-    const unassignedJobs = allJobs.filter((j) => !j.assignedMechanic);
+    // Unassigned jobs — exclude cancelled jobs (they naturally lack a mechanic)
+    const unassignedJobs = allJobs.filter((j) => !j.assignedMechanic && !j.isCanceled);
 
-    // Total man-hours: sum estimated hours from ALL active jobs (not just today's appointments)
-    const totalManHours = allJobs
-      .filter((j) => j.estimatedManHours)
-      .reduce((sum, j) => sum + j.estimatedManHours, 0);
+    // Total man-hours: actual labor time (serviceStarted → serviceDone) where available,
+    // falls back to estimated hours for jobs still in progress
+    const totalManHours = allJobs.reduce((sum, j) => {
+      const actual = computeActualHours(j);
+      if (actual !== null) return sum + actual;
+      if (j.estimatedManHours) return sum + j.estimatedManHours;
+      return sum;
+    }, 0);
 
     // Today's appointment man-hours
     const todayManHours = appointmentsToday
@@ -73,6 +106,9 @@ export default function EODReportModal() {
       }
     });
 
+    // Cancelled jobs
+    const canceledJobs = allJobs.filter((j) => j.isCanceled);
+
     // Completed Jobs — all jobs in DONE column, sorted by intake time (FIFO)
     // Uses createdAt (ISO string) for reliable chronological sorting
     const completedToday = [...done]
@@ -95,6 +131,7 @@ export default function EODReportModal() {
       todayManHours,
       mechanicLoads,
       completedToday,
+      canceledJobs,
     };
   }, [jobs, today]);
 
@@ -254,7 +291,7 @@ export default function EODReportModal() {
         <td style="padding:6px 8px;font-weight:600">${j.year} ${j.make} ${j.model}</td>
         <td style="padding:6px 8px;font-family:monospace">${j.plateNumber || '-'}</td>
         <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:white;background:#2563eb">${j.serviceStartedAt || '-'}</span></td>
-        <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:white;background:#0d9488">${j.paidAt || j.doneAt || '-'}</span></td>
+        <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:white;background:#0d9488">${j.serviceDoneTime || j.paidAt || j.doneAt || '-'}</span></td>
       </tr>`).join('')}</tbody>
   </table>` : ''}
 
@@ -356,10 +393,11 @@ export default function EODReportModal() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <StatCard icon={Package} label="Awaiting Parts" value={report.awaitingParts.length} color="amber" />
             <StatCard icon={FileText} label="Received Today" value={report.receivedToday.length} color="blue" />
             <StatCard icon={Wrench} label="Unassigned" value={report.unassignedJobs.length} color="red" />
+            <StatCard icon={Ban} label="Cancelled" value={report.canceledJobs.length} color="red" />
             <StatCard icon={Clock} label="Total Man-Hours" value={report.totalManHours.toFixed(1)} color="slate" />
           </div>
 
@@ -423,22 +461,43 @@ export default function EODReportModal() {
                   </thead>
                   <tbody>
                     {report.completedToday.map((j) => (
-                      <tr key={j.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-teal-50/50 dark:hover:bg-teal-950/20">
-                        <td className="py-2 px-2 font-mono font-bold text-blue-600 dark:text-blue-400">{j.queueNumber || '-'}</td>
+                      <tr key={j.id} className={`border-b border-gray-100 dark:border-gray-800 ${j.isCanceled ? 'bg-red-50/50 dark:bg-red-950/20 hover:bg-red-50 dark:hover:bg-red-950/30' : 'hover:bg-teal-50/50 dark:hover:bg-teal-950/20'}`}>
+                        <td className="py-2 px-2 font-mono font-bold text-blue-600 dark:text-blue-400">
+                          {j.queueNumber || '-'}
+                          {j.isCanceled && (
+                            <span className="ml-1 inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 font-bold text-[9px]">
+                              <Ban className="w-2.5 h-2.5" />
+                              CANCELLED
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 px-2 font-medium text-gray-700 dark:text-gray-300">{j.intakeTimestamp || '-'}</td>
-                        <td className="py-2 px-2 font-medium text-gray-900 dark:text-white">{j.year} {j.make} {j.model}</td>
+                        <td className={`py-2 px-2 font-medium ${j.isCanceled ? 'text-red-700 dark:text-red-300 line-through' : 'text-gray-900 dark:text-white'}`}>{j.year} {j.make} {j.model}</td>
                         <td className="py-2 px-2 text-gray-600 dark:text-gray-400 font-mono">{j.plateNumber || '-'}</td>
                         <td className="py-2 px-2">
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium text-[10px]">
-                            <Settings className="w-3 h-3" />
-                            {j.serviceStartedAt || '-'}
-                          </span>
+                          {j.isCanceled ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 font-medium text-[10px]">
+                              <Ban className="w-3 h-3" />
+                              Cancelled
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium text-[10px]">
+                              <Settings className="w-3 h-3" />
+                              {j.serviceStartedAt || '-'}
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-2">
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 font-medium text-[10px]">
-                            <CheckCircle2 className="w-3 h-3" />
-                            {j.paidAt || j.doneAt || '-'}
-                          </span>
+                          {j.isCanceled ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 font-medium text-[10px]">
+                              {j.canceledAt || '-'}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 font-medium text-[10px]">
+                              <CheckCircle2 className="w-3 h-3" />
+                              {j.serviceDoneTime || j.paidAt || j.doneAt || '-'}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -588,6 +647,57 @@ export default function EODReportModal() {
               </div>
             </div>
           )}
+
+          {/* ── Close Out Day ────────────────────────────────────── */}
+          <div className="pt-4 border-t-2 border-gray-200 dark:border-gray-700">
+            <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-300 dark:border-orange-700 rounded-xl p-5">
+              <div className="flex items-start gap-3">
+                <Archive className="w-6 h-6 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold text-orange-800 dark:text-orange-200">Close Out Day</h3>
+                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                    Archive all <strong>Done</strong> and <strong>Cancelled</strong> jobs ({report.done.length} jobs).
+                    Active jobs ({report.ongoingJobs.length} jobs in Waitlist, In-Service, Awaiting Parts, Ready for Pickup) will carry over to the next day.
+                  </p>
+                  {closeOutDone ? (
+                    <div className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                      <CheckCircle2 className="w-5 h-5" />
+                      Day closed out successfully! {report.done.length} jobs archived.
+                    </div>
+                  ) : confirmCloseOut ? (
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          closeOutDay();
+                          setCloseOutDone(true);
+                          setConfirmCloseOut(false);
+                        }}
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                      >
+                        <Archive className="w-4 h-4" />
+                        Yes, Close Out Day
+                      </button>
+                      <button
+                        onClick={() => setConfirmCloseOut(false)}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmCloseOut(true)}
+                      disabled={report.done.length === 0}
+                      className="mt-3 flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                    >
+                      <Archive className="w-4 h-4" />
+                      Close Out Day
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

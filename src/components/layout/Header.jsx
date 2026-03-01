@@ -95,7 +95,7 @@ export default function Header() {
           className="flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
         >
           <FileText className="w-4 h-4" />
-          <span className="hidden sm:inline">End of Day</span>
+          <span className="hidden sm:inline">EOD Report</span>
         </button>
 
         <button

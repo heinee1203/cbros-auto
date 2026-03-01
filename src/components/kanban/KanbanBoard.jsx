@@ -1,10 +1,12 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
-import { ClipboardList, Settings, Package, CheckCircle2, GripVertical, MapPin, X, Users, Gauge, ChevronsUp, Car, Wrench, Hash, Minimize2, Maximize2, ChevronsDownUp, ChevronsUpDown, Play, User, BadgeCheck, AlertTriangle } from 'lucide-react';
+import { ClipboardList, Settings, Package, CheckCircle2, GripVertical, MapPin, X, Users, Gauge, ChevronsUp, Car, Wrench, Hash, Minimize2, Maximize2, ChevronsDownUp, ChevronsUpDown, Play, User, BadgeCheck, AlertTriangle, LayoutGrid, List } from 'lucide-react';
+import { format } from 'date-fns';
 import { useJobsStore, getJobMechanics, isMechanicOnJob } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
 import { useAdminStore } from '../../stores/adminStore';
 import JobCard from '../jobs/JobCard';
+import JobListView from './JobListView';
 
 const COLUMN_CONFIG = [
   { status: JOB_STATUSES.WAITLIST, icon: ClipboardList, color: 'text-slate-600 dark:text-slate-300', headerBg: 'bg-slate-100 dark:bg-slate-800', colBg: 'bg-slate-50/50 dark:bg-slate-800/30', accent: 'border-t-slate-400 dark:border-t-slate-500' },
@@ -28,9 +30,10 @@ export default function KanbanBoard() {
   const clearBay = useJobsStore((s) => s.clearBay);
   const assignMechanic = useJobsStore((s) => s.assignMechanic);
   const assignAssistantMechanic = useJobsStore((s) => s.assignAssistantMechanic);
-  const { searchQuery, filterUnassigned, filterPartsOrdered, filterFrontDesk, filterMechanic, bayMapView, allCardsCollapsed } = useUIStore();
+  const { searchQuery, filterUnassigned, filterPartsOrdered, filterFrontDesk, filterMechanic, bayMapView, allCardsCollapsed, floorView } = useUIStore();
   const toggleBayMapView = useUIStore((s) => s.toggleBayMapView);
   const setAllCardsCollapsed = useUIStore((s) => s.setAllCardsCollapsed);
+  const setFloorView = useUIStore((s) => s.setFloorView);
 
   // Listen for bay assignment requests from JobCard arrow buttons (via uiStore)
   const bayAssignmentPending = useUIStore((s) => s.bayAssignmentPending);
@@ -80,7 +83,7 @@ export default function KanbanBoard() {
       );
     }
     if (filterUnassigned) {
-      result = result.filter((j) => !j.assignedMechanic);
+      result = result.filter((j) => !j.assignedMechanic && !j.isCanceled);
     }
     if (filterPartsOrdered) {
       result = result.filter((j) => j.partsOrdered);
@@ -101,8 +104,22 @@ export default function KanbanBoard() {
       if (grouped[j.status]) grouped[j.status].push(j);
     });
 
-    // Waitlist: FIFO sort
+    // Waitlist: filter out future-dated jobs, then FIFO sort
     if (grouped[JOB_STATUSES.WAITLIST]) {
+      const todayStr = format(new Date(), 'MM/dd/yyyy');
+      const todayNum = (() => {
+        const [m, d, y] = todayStr.split('/');
+        return parseInt(y + m + d, 10);
+      })();
+
+      // Hide jobs with appointment dates in the future from the Live Floor
+      grouped[JOB_STATUSES.WAITLIST] = grouped[JOB_STATUSES.WAITLIST].filter((j) => {
+        if (!j.appointmentDate) return true; // no date → show
+        const [m, d, y] = j.appointmentDate.split('/');
+        const jobDateNum = parseInt(y + m + d, 10);
+        return jobDateNum <= todayNum; // show today and past, hide future
+      });
+
       grouped[JOB_STATUSES.WAITLIST].sort((a, b) => {
         const aHasAppt = !!a.appointmentDate;
         const bHasAppt = !!b.appointmentDate;
@@ -686,33 +703,65 @@ export default function KanbanBoard() {
         {/* Divider */}
         <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
-        {/* Expand All / Collapse All toggle */}
-        <button
-          onClick={() => setAllCardsCollapsed(allCardsCollapsed === true ? false : true)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-            allCardsCollapsed != null
-              ? 'bg-indigo-600 text-white border-indigo-600'
-              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
-          }`}
-          title={allCardsCollapsed === true ? 'Expand all cards' : 'Collapse all cards'}
-        >
-          {allCardsCollapsed === true ? (
-            <><ChevronsUpDown className="w-3.5 h-3.5" /> Expand All</>
-          ) : (
-            <><ChevronsDownUp className="w-3.5 h-3.5" /> Collapse All</>
-          )}
-        </button>
-
-        {allCardsCollapsed != null && (
+        {/* Board / List view toggle */}
+        <div className="flex items-center rounded-full border border-gray-300 dark:border-gray-600 overflow-hidden">
           <button
-            onClick={() => setAllCardsCollapsed(null)}
-            className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline"
+            onClick={() => setFloorView('board')}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+              floorView === 'board'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+            title="Board view"
           >
-            Reset
+            <LayoutGrid className="w-3.5 h-3.5" />
+            Board
           </button>
+          <button
+            onClick={() => setFloorView('list')}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium transition-colors border-l border-gray-300 dark:border-gray-600 ${
+              floorView === 'list'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+            title="List view"
+          >
+            <List className="w-3.5 h-3.5" />
+            List
+          </button>
+        </div>
+
+        {/* Expand All / Collapse All toggle — only in board view */}
+        {floorView === 'board' && (
+          <>
+            <button
+              onClick={() => setAllCardsCollapsed(allCardsCollapsed === true ? false : true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                allCardsCollapsed != null
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+              title={allCardsCollapsed === true ? 'Expand all cards' : 'Collapse all cards'}
+            >
+              {allCardsCollapsed === true ? (
+                <><ChevronsUpDown className="w-3.5 h-3.5" /> Expand All</>
+              ) : (
+                <><ChevronsDownUp className="w-3.5 h-3.5" /> Collapse All</>
+              )}
+            </button>
+
+            {allCardsCollapsed != null && (
+              <button
+                onClick={() => setAllCardsCollapsed(null)}
+                className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline"
+              >
+                Reset
+              </button>
+            )}
+          </>
         )}
 
-        {draggedJobId && (
+        {draggedJobId && floorView === 'board' && (
           <span className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-medium animate-fade-in">
             <GripVertical className="w-3.5 h-3.5" />
             Drop on a column or bay to move
@@ -723,63 +772,70 @@ export default function KanbanBoard() {
         </span>
       </div>
 
-      {/* Columns */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-        {COLUMN_CONFIG.map(({ status, icon: Icon, color, headerBg, colBg, accent }) => {
-          const colJobs = jobsByStatus[status] || [];
-          const isDropTarget = dragOverColumn === status && draggedJobId;
+      {/* Board View — Kanban Columns */}
+      {floorView === 'board' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          {COLUMN_CONFIG.map(({ status, icon: Icon, color, headerBg, colBg, accent }) => {
+            const colJobs = jobsByStatus[status] || [];
+            const isDropTarget = dragOverColumn === status && draggedJobId;
 
-          return (
-            <div
-              key={status}
-              className="flex flex-col"
-              onDragOver={(e) => handleDragOver(e, status)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, status)}
-            >
-              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-lg border-t-2 ${accent} ${headerBg}`}>
-                <Icon className={`w-4 h-4 ${color}`} />
-                <h3 className={`text-sm font-bold ${color}`}>
-                  {STATUS_LABELS[status]}
-                </h3>
-                <span className="ml-auto text-xs font-semibold text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-900/80 px-2 py-0.5 rounded-full min-w-[24px] text-center">
-                  {colJobs.length}
-                </span>
-              </div>
+            return (
               <div
-                className={`flex-1 min-h-[200px] rounded-b-lg border border-t-0 border-gray-200 dark:border-gray-700 p-2 space-y-2 overflow-y-auto max-h-[calc(100vh-380px)] transition-colors ${colBg} ${
-                  isDropTarget ? 'kanban-column-drop-active' : ''
-                }`}
+                key={status}
+                className="flex flex-col"
+                onDragOver={(e) => handleDragOver(e, status)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, status)}
               >
-                {colJobs.length === 0 ? (
-                  <div className={`flex flex-col items-center justify-center py-10 ${isDropTarget ? 'opacity-100' : 'opacity-60'}`}>
-                    {isDropTarget ? (
-                      <p className="text-sm text-blue-500 dark:text-blue-400 font-medium">
-                        Drop here
-                      </p>
-                    ) : (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        No jobs
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  colJobs.map((job) => (
-                    <JobCard
-                      key={job.id}
-                      job={job}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                      isDragging={draggedJobId === job.id}
-                      forceCollapsed={allCardsCollapsed}
-                    />
-                  ))
-                )}
+                <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-lg border-t-2 ${accent} ${headerBg}`}>
+                  <Icon className={`w-4 h-4 ${color}`} />
+                  <h3 className={`text-sm font-bold ${color}`}>
+                    {STATUS_LABELS[status]}
+                  </h3>
+                  <span className="ml-auto text-xs font-semibold text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-900/80 px-2 py-0.5 rounded-full min-w-[24px] text-center">
+                    {colJobs.length}
+                  </span>
+                </div>
+                <div
+                  className={`flex-1 min-h-[200px] rounded-b-lg border border-t-0 border-gray-200 dark:border-gray-700 p-2 space-y-2 overflow-y-auto max-h-[calc(100vh-380px)] transition-colors ${colBg} ${
+                    isDropTarget ? 'kanban-column-drop-active' : ''
+                  }`}
+                >
+                  {colJobs.length === 0 ? (
+                    <div className={`flex flex-col items-center justify-center py-10 ${isDropTarget ? 'opacity-100' : 'opacity-60'}`}>
+                      {isDropTarget ? (
+                        <p className="text-sm text-blue-500 dark:text-blue-400 font-medium">
+                          Drop here
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-400 dark:text-gray-500">
+                          No jobs
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    colJobs.map((job) => (
+                      <JobCard
+                        key={job.id}
+                        job={job}
+                        onDragStart={handleDragStart}
+                        onDragEnd={handleDragEnd}
+                        isDragging={draggedJobId === job.id}
+                        forceCollapsed={allCardsCollapsed}
+                      />
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* List View — Dense Data Table */}
+      {floorView === 'list' && (
+        <JobListView jobs={filteredJobs} />
+      )}
 
       {/* Start Service & Assignment Modal */}
       {serviceModal && (() => {

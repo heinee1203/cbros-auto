@@ -133,7 +133,7 @@ export default function MechanicLoadTable() {
     return {
       totalActive: jobs.filter((j) => j.status !== JOB_STATUSES.READY_FOR_PICKUP).length,
       awaitingParts: jobs.filter((j) => j.partsOrdered).length,
-      unassigned: jobs.filter((j) => !j.assignedMechanic).length,
+      unassigned: jobs.filter((j) => !j.assignedMechanic && !j.isCanceled).length,
       scheduledInRange: rangeJobs.length,
     };
   }, [jobs, weekStart, weekEnd, dateRange]);

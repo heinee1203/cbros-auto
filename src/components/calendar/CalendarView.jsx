@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   startOfWeek,
   endOfWeek,
@@ -15,6 +15,8 @@ import {
   isToday,
   isSameDay,
   isSameMonth,
+  addDays,
+  getDay,
 } from 'date-fns';
 import {
   ChevronLeft,
@@ -43,6 +45,7 @@ export default function CalendarView() {
   const jobs = useJobsStore((s) => s.jobs);
   const getAllMechanicLoadsForDate = useJobsStore((s) => s.getAllMechanicLoadsForDate);
   const updateJob = useJobsStore((s) => s.updateJob);
+  const closedDates = useJobsStore((s) => s.closedDates);
   const setEditingJobId = useUIStore((s) => s.setEditingJobId);
   const openIntakeModal = useUIStore((s) => s.openIntakeModal);
 
@@ -100,6 +103,36 @@ export default function CalendarView() {
   // Is the selected day today? (for past-slot time filtering)
   const isSelectedDateToday = selectedDate ? isToday(selectedDate) : false;
 
+  // Closed-date check: date was formally closed out via EOD, or Sunday after noon
+  const isSundayAfterNoon = isSelectedDateToday && getDay(now) === 0 && now.getHours() >= 12;
+  const isClosedDate = selectedDateStr ? (closedDates.includes(selectedDateStr) || isSundayAfterNoon) : false;
+
+  // Auto-redirect: when today is closed or Sunday afternoon, redirect to next available date
+  const lastRedirectRef = useRef('');
+  useEffect(() => {
+    const realNow = new Date();
+    const todayStr = format(realNow, 'MM/dd/yyyy');
+    const isTodayClosed = closedDates.includes(todayStr);
+    const isSundayPM = getDay(realNow) === 0 && realNow.getHours() >= 12;
+
+    if (!(isTodayClosed || isSundayPM)) return;
+    if (!isSameDay(selectedDate, realNow)) return;
+
+    // Use a key to only redirect once per trigger
+    const key = isTodayClosed ? `closed:${todayStr}` : `sun:${todayStr}`;
+    if (lastRedirectRef.current === key) return;
+    lastRedirectRef.current = key;
+
+    // Find next available date (skip closed dates)
+    let next = addDays(realNow, 1);
+    for (let i = 0; i < 30; i++) {
+      if (!closedDates.includes(format(next, 'MM/dd/yyyy'))) break;
+      next = addDays(next, 1);
+    }
+    setSelectedDate(next);
+    setCurrentDate(next);
+  }, [closedDates, now, selectedDate]);
+
   const navigate = (dir) => {
     if (viewMode === 'week') {
       setCurrentDate(dir === 'prev' ? subWeeks(currentDate, 1) : addWeeks(currentDate, 1));
@@ -122,6 +155,7 @@ export default function CalendarView() {
   // Click on available slot to open intake with pre-filled time
   const handleSlotClick = (slotTime, count, isPastSlot) => {
     if (isPastDate) return; // Past dates are read-only
+    if (isClosedDate) return; // Closed dates are locked
     if (isPastSlot) return; // Past time slots on today are not clickable
     if (count >= slotCapacity) return; // Don't open for full slots
     if (!selectedDateISO) return;
@@ -246,6 +280,11 @@ export default function CalendarView() {
                   {dayJobs.length}
                 </span>
               )}
+              {closedDates.includes(dateStr) && (
+                <span className={`inline-block text-[9px] font-bold text-red-600 dark:text-red-400 ${viewMode === 'week' ? 'mt-0.5' : 'mt-0'}`}>
+                  Closed
+                </span>
+              )}
             </button>
           );
         })}
@@ -259,10 +298,20 @@ export default function CalendarView() {
             <span className="text-xs text-gray-500 dark:text-gray-400 font-normal">
               {selectedJobs.length} scheduled job{selectedJobs.length !== 1 ? 's' : ''}
             </span>
-            {isPastDate && (
-              <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 rounded-full border border-amber-200 dark:border-amber-800">
-                <Lock className="w-3 h-3" />
-                Read-Only
+            {(isPastDate || isClosedDate) && (
+              <span className="ml-auto flex items-center gap-1.5">
+                {isPastDate && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 rounded-full border border-amber-200 dark:border-amber-800">
+                    <Lock className="w-3 h-3" />
+                    Read-Only
+                  </span>
+                )}
+                {isClosedDate && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/40 rounded-full border border-red-200 dark:border-red-800">
+                    <Lock className="w-3 h-3" />
+                    Day Closed
+                  </span>
+                )}
               </span>
             )}
           </h4>
@@ -403,8 +452,8 @@ export default function CalendarView() {
                             )}
                           </button>
                         ))}
-                        {/* Add button for partially-filled slots (hidden for past dates and past time slots) */}
-                        {!isPastDate && (
+                        {/* Add button for partially-filled slots (hidden for past dates, past time slots, closed dates) */}
+                        {!isPastDate && !isClosedDate && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleSlotClick(slotTime, count, false); }}
                             className="inline-flex items-center gap-0.5 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 px-1.5 py-0.5 rounded-full text-[10px] font-medium hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
@@ -414,8 +463,10 @@ export default function CalendarView() {
                           </button>
                         )}
                       </div>
-                    ) : isPastDate ? (
-                      <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+                    ) : (isPastDate || isClosedDate) ? (
+                      <span className="text-xs text-gray-300 dark:text-gray-600">
+                        {isClosedDate && !isPastDate ? 'Day Closed' : '—'}
+                      </span>
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleSlotClick(slotTime, count, false); }}
@@ -462,7 +513,7 @@ export default function CalendarView() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {isPastDate ? (
+                        {(isPastDate || isClosedDate) ? (
                           <>
                             {job.assignedMechanic && (
                               <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">

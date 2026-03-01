@@ -2,6 +2,7 @@ import { useUIStore } from './stores/uiStore';
 import Header from './components/layout/Header';
 import TabBar from './components/layout/TabBar';
 import IntakeModal from './components/jobs/IntakeModal';
+import CancelIntakeModal from './components/jobs/CancelIntakeModal';
 import JobDetailDrawer from './components/jobs/JobDetailDrawer';
 import KanbanBoard from './components/kanban/KanbanBoard';
 import CalendarView from './components/calendar/CalendarView';
@@ -26,6 +27,7 @@ function App() {
       </main>
 
       <IntakeModal />
+      <CancelIntakeModal />
       <EODReportModal />
       {editingJobId && <JobDetailDrawer />}
     </div>

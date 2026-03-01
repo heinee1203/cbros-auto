@@ -64,8 +64,8 @@ export const ALL_BAYS = [...LIFTER_BAYS, ...NON_LIFTER_BAYS];
 
 export const SLOT_CAPACITY = 5;
 
-// Service categories for "Reason for Visit" checklist
-export const SERVICE_CATEGORIES = [
+// Service categories for "Reason for Visit" checklist (default seed — managed dynamically via Admin)
+export const DEFAULT_SERVICE_CATEGORIES = [
   {
     name: 'Oil & Fluids',
     items: ['Change Oil & Filter', 'Coolant Flush', 'Transmission Fluid Service', 'Differential Fluid Change'],

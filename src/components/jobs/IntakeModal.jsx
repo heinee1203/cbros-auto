@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, AlertTriangle, ChevronDown, Footprints, CalendarClock, ClipboardList } from 'lucide-react';
+import { X, AlertTriangle, ChevronDown, Footprints, CalendarClock, ClipboardList, CheckCircle2, Hash } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore } from '../../stores/jobsStore';
-import { VEHICLE_MAKES, VEHICLE_YEARS, SERVICE_CATEGORIES } from '../../data/rosters';
+import { VEHICLE_MAKES, VEHICLE_YEARS } from '../../data/rosters';
 import { useAdminStore } from '../../stores/adminStore';
 import MechanicBandwidthWarning from './MechanicBandwidthWarning';
 
@@ -35,8 +35,10 @@ export default function IntakeModal() {
   const mechanics = useAdminStore((s) => s.mechanics);
   const frontDesk = useAdminStore((s) => s.frontDesk);
   const slotCapacity = useAdminStore((s) => s.slotCapacity);
+  const serviceCategories = useAdminStore((s) => s.serviceCategories);
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
+  const [successData, setSuccessData] = useState(null); // { queueNumber, customerName, vehicle }
 
   // Real-time clock for past-time slot filtering (ticks every minute)
   const [now, setNow] = useState(() => new Date());
@@ -66,6 +68,7 @@ export default function IntakeModal() {
     if (!intakeModalOpen) {
       setForm(initialForm);
       setErrors({});
+      setSuccessData(null);
       setMakeDropdownOpen(false);
       setMakeFilter('');
       setServiceModalOpen(false);
@@ -212,7 +215,7 @@ export default function IntakeModal() {
       appointmentDate = format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy');
     }
 
-    addJob({
+    const newJobId = addJob({
       ...form,
       appointmentDate,
       preferredTime: form.preferredTime || null,
@@ -222,9 +225,18 @@ export default function IntakeModal() {
       estimatedCompletion: form.estimatedCompletion || null,
     });
 
+    // Find the newly created job to get its queue number
+    const newJob = useJobsStore.getState().jobs.find((j) => j.id === newJobId);
+    setSuccessData({
+      queueNumber: newJob?.queueNumber || '',
+      customerName: form.customerName,
+      vehicle: `${form.year} ${form.make} ${form.model}`,
+      plateNumber: form.plateNumber,
+      services: form.reasonForVisit.length,
+    });
+
     setForm(initialForm);
     setErrors({});
-    closeIntakeModal();
   };
 
   const handleMakeSelect = (make) => {
@@ -747,6 +759,60 @@ export default function IntakeModal() {
         </form>
       </div>
 
+      {/* ── Success Confirmation Overlay ─────────────────────────────── */}
+      {successData && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-sm mx-4 p-8 text-center animate-slide-in">
+            <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center mb-4">
+              <CheckCircle2 className="w-9 h-9 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Intake Created!</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">The job has been added to the waitlist.</p>
+
+            {successData.queueNumber && (
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-700 mb-4">
+                <Hash className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-lg font-bold font-mono text-blue-700 dark:text-blue-300 tracking-wide">
+                  {successData.queueNumber}
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-1.5 text-sm text-gray-700 dark:text-gray-300 mb-6">
+              <p className="font-semibold">{successData.vehicle}</p>
+              {successData.plateNumber && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{successData.plateNumber}</p>
+              )}
+              <p>{successData.customerName}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                {successData.services} service{successData.services !== 1 ? 's' : ''} selected
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setSuccessData(null);
+                  closeIntakeModal();
+                }}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setSuccessData(null);
+                }}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Add Another
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Service Checklist Popup Modal */}
       {serviceModalOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center">
@@ -775,7 +841,7 @@ export default function IntakeModal() {
             {/* Modal Body — Checkbox Grid */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {SERVICE_CATEGORIES.map((cat) => (
+                {serviceCategories.map((cat) => (
                   <div key={cat.name} className="space-y-2">
                     <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b-2 border-gray-200 dark:border-gray-700 pb-1.5">
                       {cat.name}

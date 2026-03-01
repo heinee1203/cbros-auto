@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Trash2, Save, Hash, ClipboardList } from 'lucide-react';
+import { X, Trash2, Save, Hash, ClipboardList, Ban } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore } from '../../stores/jobsStore';
-import { JOB_STATUSES, STATUS_LABELS, SERVICE_CATEGORIES } from '../../data/rosters';
+import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
 import { useAdminStore } from '../../stores/adminStore';
 import MechanicBandwidthWarning from './MechanicBandwidthWarning';
 
@@ -13,9 +13,11 @@ export default function JobDetailDrawer() {
   const jobs = useJobsStore((s) => s.jobs);
   const mechanics = useAdminStore((s) => s.mechanics);
   const frontDesk = useAdminStore((s) => s.frontDesk);
+  const serviceCategories = useAdminStore((s) => s.serviceCategories);
   const updateJob = useJobsStore((s) => s.updateJob);
   const deleteJob = useJobsStore((s) => s.deleteJob);
   const togglePartsOrdered = useJobsStore((s) => s.togglePartsOrdered);
+  const setCancelingJobId = useUIStore((s) => s.setCancelingJobId);
 
   const job = jobs.find((j) => j.id === editingJobId);
   const [form, setForm] = useState({});
@@ -134,6 +136,27 @@ export default function JobDetailDrawer() {
         </div>
 
         <div className="p-5 space-y-4">
+          {/* Cancelled banner */}
+          {job.isCanceled && (
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 space-y-2">
+              <div className="flex items-center gap-2">
+                <Ban className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold text-red-700 dark:text-red-300">CANCELLED</p>
+                  {job.canceledAt && (
+                    <p className="text-xs text-red-500 dark:text-red-400">Cancelled at {job.canceledAt}</p>
+                  )}
+                </div>
+              </div>
+              {job.cancelReason && (
+                <div className="ml-7">
+                  <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-0.5">Reason:</p>
+                  <p className="text-xs text-red-500 dark:text-red-400 leading-relaxed">{job.cancelReason}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Status */}
           <div>
             <label className={labelCls}>Status</label>
@@ -365,6 +388,19 @@ export default function JobDetailDrawer() {
 
           {/* Actions */}
           <div className="flex items-center gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            {/* Cancel Intake — only for WAITLIST non-cancelled */}
+            {job.status === JOB_STATUSES.WAITLIST && !job.isCanceled && (
+              <button
+                onClick={() => {
+                  setCancelingJobId(job.id);
+                  setEditingJobId(null);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-950/50"
+              >
+                <Ban className="w-4 h-4" />
+                Cancel Intake
+              </button>
+            )}
             <button
               onClick={handleDelete}
               className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -423,7 +459,7 @@ export default function JobDetailDrawer() {
             {/* Modal Body — Checkbox Grid */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {SERVICE_CATEGORIES.map((cat) => (
+                {serviceCategories.map((cat) => (
                   <div key={cat.name} className="space-y-2">
                     <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide border-b-2 border-gray-200 dark:border-gray-700 pb-1.5">
                       {cat.name}

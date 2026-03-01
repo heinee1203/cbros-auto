@@ -19,6 +19,8 @@ export const useUIStore = create(
       allCardsCollapsed: null, // null = individual, true = all collapsed, false = all expanded
       filterFrontDesk: '',
       filterMechanic: '',
+      cancelingJobId: null, // job ID for the Cancel Intake modal
+      floorView: 'board', // 'board' or 'list' — Live Floor view mode
 
       toggleTheme: () =>
         set((state) => {
@@ -43,10 +45,12 @@ export const useUIStore = create(
       setAllCardsCollapsed: (v) => set({ allCardsCollapsed: v }),
       setFilterFrontDesk: (v) => set({ filterFrontDesk: v }),
       setFilterMechanic: (v) => set({ filterMechanic: v }),
+      setCancelingJobId: (id) => set({ cancelingJobId: id }),
+      setFloorView: (v) => set({ floorView: v }),
     }),
     {
       name: 'cbros-ui',
-      partialize: (state) => ({ theme: state.theme, activeTab: state.activeTab }),
+      partialize: (state) => ({ theme: state.theme, activeTab: state.activeTab, floorView: state.floorView }),
       onRehydrateStorage: () => (state) => {
         if (state?.theme === 'dark') {
           document.documentElement.classList.add('dark');

@@ -73,6 +73,8 @@ export const useJobsStore = create(
   persist(
     (set, get) => ({
       jobs: [],
+      archivedJobs: [],
+      closedDates: [],
 
       addJob: (data) => {
         const now = new Date();
@@ -105,11 +107,14 @@ export const useJobsStore = create(
           internalNotes: data.internalNotes || '',
           assignedBay: null,
           serviceStartedAt: null,
+          serviceDoneTime: null,
           readyForPickupAt: null,
           isPaid: false,
           paidAt: null,
           isDone: false,
           doneAt: null,
+          isCanceled: false,
+          canceledAt: null,
         };
         set((state) => ({ jobs: [job, ...state.jobs] }));
         return job.id;
@@ -126,7 +131,15 @@ export const useJobsStore = create(
             if (j.id !== id) return j;
             const idx = STATUS_ORDER.indexOf(j.status);
             if (idx < STATUS_ORDER.length - 1) {
-              return { ...j, status: STATUS_ORDER[idx + 1] };
+              const nextStatus = STATUS_ORDER[idx + 1];
+              const updates = { status: nextStatus };
+              if (nextStatus === JOB_STATUSES.IN_SERVICE && !j.serviceStartedAt) {
+                updates.serviceStartedAt = formatDateTimestamp(new Date());
+              }
+              if (nextStatus === JOB_STATUSES.READY_FOR_PICKUP && !j.serviceDoneTime) {
+                updates.serviceDoneTime = formatDateTimestamp(new Date());
+              }
+              return { ...j, ...updates };
             }
             return j;
           }),
@@ -154,6 +167,9 @@ export const useJobsStore = create(
             }
             if (status === JOB_STATUSES.READY_FOR_PICKUP) {
               updates.readyForPickupAt = formatTimestamp(new Date());
+              if (!j.serviceDoneTime) {
+                updates.serviceDoneTime = formatDateTimestamp(new Date());
+              }
             }
             return { ...j, ...updates };
           }),
@@ -191,6 +207,7 @@ export const useJobsStore = create(
             if (nowPaid && j.status === JOB_STATUSES.READY_FOR_PICKUP) {
               updates.status = JOB_STATUSES.DONE;
               if (j.assignedBay) updates.assignedBay = null;
+              if (!j.serviceDoneTime) updates.serviceDoneTime = formatDateTimestamp(new Date());
             } else if (!nowPaid && j.status === JOB_STATUSES.DONE) {
               updates.status = JOB_STATUSES.READY_FOR_PICKUP;
             }
@@ -211,10 +228,41 @@ export const useJobsStore = create(
             if (nowDone && j.status === JOB_STATUSES.READY_FOR_PICKUP) {
               updates.status = JOB_STATUSES.DONE;
               if (j.assignedBay) updates.assignedBay = null;
+              if (!j.serviceDoneTime) updates.serviceDoneTime = formatDateTimestamp(new Date());
             } else if (!nowDone && j.status === JOB_STATUSES.DONE) {
               updates.status = JOB_STATUSES.READY_FOR_PICKUP;
             }
             return { ...j, ...updates };
+          }),
+        })),
+
+      markDonePaid: (id) =>
+        set((state) => ({
+          jobs: state.jobs.map((j) => {
+            if (j.id !== id) return j;
+            return {
+              ...j,
+              status: JOB_STATUSES.DONE,
+              isPaid: true,
+              paidAt: formatTimestamp(new Date()),
+              assignedBay: null,
+              ...(j.serviceDoneTime ? {} : { serviceDoneTime: formatDateTimestamp(new Date()) }),
+            };
+          }),
+        })),
+
+      cancelJob: (id, reason) =>
+        set((state) => ({
+          jobs: state.jobs.map((j) => {
+            if (j.id !== id) return j;
+            return {
+              ...j,
+              isCanceled: true,
+              canceledAt: formatTimestamp(new Date()),
+              cancelReason: reason || '',
+              status: JOB_STATUSES.DONE,
+              assignedBay: null,
+            };
           }),
         })),
 
@@ -244,7 +292,36 @@ export const useJobsStore = create(
           jobs: state.jobs.filter((j) => j.id !== id),
         })),
 
-      resetAllData: () => set({ jobs: [] }),
+      closeOutDay: () =>
+        set((state) => {
+          const now = new Date();
+          const closedDate = formatDate(now);
+          const closedTime = formatTimestamp(now);
+
+          // DONE + cancelled → archive
+          const toArchive = state.jobs.filter(
+            (j) => j.status === JOB_STATUSES.DONE || j.isCanceled
+          );
+          // Active jobs carry over (WAITLIST, IN_SERVICE, AWAITING_PARTS, READY_FOR_PICKUP that aren't cancelled)
+          const carryOver = state.jobs.filter(
+            (j) => j.status !== JOB_STATUSES.DONE && !j.isCanceled
+          );
+
+          const archived = toArchive.map((j) => ({
+            ...j,
+            archivedAt: `${closedDate} at ${closedTime}`,
+          }));
+
+          return {
+            jobs: carryOver,
+            archivedJobs: [...archived, ...state.archivedJobs],
+            closedDates: state.closedDates.includes(closedDate)
+              ? state.closedDates
+              : [...state.closedDates, closedDate],
+          };
+        }),
+
+      resetAllData: () => set({ jobs: [], archivedJobs: [], closedDates: [] }),
 
       getJobsByStatus: (status) => get().jobs.filter((j) => j.status === status),
 

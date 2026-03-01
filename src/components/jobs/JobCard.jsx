@@ -16,6 +16,8 @@ import {
   DollarSign,
   Play,
   CheckCircle2,
+  XCircle,
+  Ban,
 } from 'lucide-react';
 import { useJobsStore, to12Hour } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -27,6 +29,7 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
     useJobsStore();
   const setEditingJobId = useUIStore((s) => s.setEditingJobId);
   const setBayAssignmentPending = useUIStore((s) => s.setBayAssignmentPending);
+  const setCancelingJobId = useUIStore((s) => s.setCancelingJobId);
   const mechanics = useAdminStore((s) => s.mechanics);
   const allBays = useAdminStore((s) => s.getAllBays)();
 
@@ -51,10 +54,12 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
   const needsMechanic = !job.assignedMechanic;
   const isReadyForPickup = job.status === JOB_STATUSES.READY_FOR_PICKUP;
   const isDoneStatus = job.status === JOB_STATUSES.DONE;
-  const isLocked = isDoneStatus || (isReadyForPickup && (job.isPaid || job.isDone));
-  const showToggles = isReadyForPickup || isDoneStatus;
+  const isCanceled = !!job.isCanceled;
+  const isLocked = isCanceled || isDoneStatus || (isReadyForPickup && (job.isPaid || job.isDone));
+  const showToggles = !isCanceled && (isReadyForPickup || isDoneStatus);
   const isInService = job.status === JOB_STATUSES.IN_SERVICE;
   const isAwaitingParts = job.status === JOB_STATUSES.AWAITING_PARTS;
+  const isWaitlist = job.status === JOB_STATUSES.WAITLIST;
 
   const bayLabel = job.assignedBay
     ? allBays.find((b) => b.id === job.assignedBay)?.label || job.assignedBay
@@ -123,7 +128,9 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
         } ${
           isDragging ? 'opacity-40 scale-95' : ''
         } ${
-          isLocked
+          isCanceled
+            ? 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-950/30'
+            : isLocked
             ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30'
             : job.partsOrdered
             ? 'border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-950/30'
@@ -162,10 +169,16 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
               PAID
             </span>
           )}
-          {(isReadyForPickup || isDoneStatus) && job.isDone && !job.isPaid && (
+          {(isReadyForPickup || isDoneStatus) && job.isDone && !job.isPaid && !isCanceled && (
             <span className="shrink-0 flex items-center gap-1 text-xs font-bold bg-sky-600 dark:bg-sky-500 text-white px-2 py-0.5 rounded-full">
               <CheckCircle2 className="w-3 h-3" />
               DONE
+            </span>
+          )}
+          {isCanceled && (
+            <span className="shrink-0 flex items-center gap-1 text-xs font-bold bg-red-600 dark:bg-red-500 text-white px-2 py-0.5 rounded-full">
+              <Ban className="w-3 h-3" />
+              CANCELLED
             </span>
           )}
           <button
@@ -402,6 +415,16 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
                   <Package className="w-3.5 h-3.5" />
                 </button>
 
+                {isWaitlist && (
+                  <button
+                    onClick={() => setCancelingJobId(job.id)}
+                    title="Cancel this intake"
+                    className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-500 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                  </button>
+                )}
+
                 <div className="ml-auto flex gap-1">
                   {canMoveBackward && (
                     <button
@@ -428,13 +451,18 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
         )}
       </div>
 
-      {/* Paid / Done timestamp below the card */}
-      {(isReadyForPickup || isDoneStatus) && job.isPaid && job.paidAt && (
+      {/* Paid / Done / Cancelled timestamp below the card */}
+      {isCanceled && job.canceledAt && (
+        <p className="text-center text-[10px] font-bold text-red-600 dark:text-red-400 mt-1">
+          Cancelled at {job.canceledAt}
+        </p>
+      )}
+      {!isCanceled && (isReadyForPickup || isDoneStatus) && job.isPaid && job.paidAt && (
         <p className="text-center text-[10px] font-medium text-emerald-600 dark:text-emerald-400 mt-1">
           Paid at {job.paidAt}
         </p>
       )}
-      {(isReadyForPickup || isDoneStatus) && job.isDone && job.doneAt && !job.isPaid && (
+      {!isCanceled && (isReadyForPickup || isDoneStatus) && job.isDone && job.doneAt && !job.isPaid && (
         <p className="text-center text-[10px] font-medium text-sky-600 dark:text-sky-400 mt-1">
           Done at {job.doneAt}
         </p>

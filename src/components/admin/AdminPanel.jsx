@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import {
   Shield, ShieldOff, Lock, Wrench, UserCircle, Settings, Plus, Trash2, Pencil,
-  Download, Clock, ScrollText, X, Check, ChevronDown, ChevronUp, HardDrive,
+  Download, Clock, ScrollText, X, Check, ChevronDown, ChevronUp, HardDrive, ClipboardList, Archive,
 } from 'lucide-react';
 import { useAdminStore } from '../../stores/adminStore';
 import { useJobsStore } from '../../stores/jobsStore';
+import ArchiveViewer from './ArchiveViewer';
 
 export default function AdminPanel() {
   const admin = useAdminStore();
@@ -19,6 +20,14 @@ export default function AdminPanel() {
   const [editingFD, setEditingFD] = useState(null); // { id, name }
   const [newFD, setNewFD] = useState({ name: '' });
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Service category editing states
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [editingCategory, setEditingCategory] = useState(null); // { oldName, newName }
+  const [expandedCategories, setExpandedCategories] = useState({});
+  const [newServiceItems, setNewServiceItems] = useState({}); // { categoryName: 'text' }
+  const [editingService, setEditingService] = useState(null); // { category, oldItem, newItem }
+  const [confirmDeleteService, setConfirmDeleteService] = useState(null); // 'category::item' or 'cat::__category__'
 
   // ── Login gate ──────────────────────────────────────────────────────────
   if (!admin.adminMode) {
@@ -141,6 +150,8 @@ export default function AdminPanel() {
         <SectionButton id="personnel" label="Personnel" icon={UserCircle} />
         <SectionButton id="settings" label="System Settings" icon={Settings} />
         <SectionButton id="backup" label="Data Backup" icon={HardDrive} />
+        <SectionButton id="services" label="Services" icon={ClipboardList} />
+        <SectionButton id="archive" label="Job Archive" icon={Archive} />
         <SectionButton id="logs" label="Audit Logs" icon={ScrollText} />
       </div>
 
@@ -350,6 +361,233 @@ export default function AdminPanel() {
           </p>
         </div>
       )}
+
+      {/* ── SERVICES ──────────────────────────────────────────────────────── */}
+      {section === 'services' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-gray-500" />
+              Service Categories ({admin.serviceCategories.length})
+            </h3>
+          </div>
+
+          {/* Category cards */}
+          {admin.serviceCategories.map((cat) => {
+            const isExpanded = expandedCategories[cat.name] !== false; // default open
+            const catDeleteKey = `${cat.name}::__category__`;
+
+            return (
+              <div key={cat.name} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+                {/* Category header */}
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2 bg-gray-50 dark:bg-gray-900/50">
+                  <button
+                    onClick={() => setExpandedCategories((prev) => ({ ...prev, [cat.name]: !isExpanded }))}
+                    className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400"
+                  >
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+
+                  {editingCategory?.oldName === cat.name ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        value={editingCategory.newName}
+                        onChange={(e) => setEditingCategory({ ...editingCategory, newName: e.target.value })}
+                        className={`${inputCls} flex-1`}
+                        placeholder="Category name"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => {
+                          if (editingCategory.newName.trim() && editingCategory.newName.trim() !== editingCategory.oldName) {
+                            admin.updateCategory(editingCategory.oldName, editingCategory.newName.trim());
+                          }
+                          setEditingCategory(null);
+                        }}
+                        className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => setEditingCategory(null)} className="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-sm font-bold text-gray-900 dark:text-white flex-1">
+                        {cat.name}
+                        <span className="ml-2 text-xs font-normal text-gray-400">({cat.items.length} items)</span>
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingCategory({ oldName: cat.name, newName: cat.name })}
+                          className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400"
+                          title="Rename category"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        {confirmDeleteService === catDeleteKey ? (
+                          <button
+                            onClick={() => { admin.removeCategory(cat.name); setConfirmDeleteService(null); }}
+                            className="px-2 py-0.5 text-[10px] font-bold text-white bg-red-600 rounded hover:bg-red-700"
+                          >
+                            Delete Category?
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteService(catDeleteKey)}
+                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500"
+                            title="Delete category"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Service items list */}
+                {isExpanded && (
+                  <>
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[300px] overflow-y-auto">
+                      {cat.items.length === 0 && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4 italic">No services in this category yet.</p>
+                      )}
+                      {cat.items.map((item) => {
+                        const itemDeleteKey = `${cat.name}::${item}`;
+                        const isEditingThis = editingService?.category === cat.name && editingService?.oldItem === item;
+
+                        return isEditingThis ? (
+                          <div key={item} className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-950/30">
+                            <input
+                              value={editingService.newItem}
+                              onChange={(e) => setEditingService({ ...editingService, newItem: e.target.value })}
+                              className={`${inputCls} flex-1`}
+                              placeholder="Service name"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => {
+                                if (editingService.newItem.trim() && editingService.newItem.trim() !== editingService.oldItem) {
+                                  admin.updateServiceItem(cat.name, editingService.oldItem, editingService.newItem.trim());
+                                }
+                                setEditingService(null);
+                              }}
+                              className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => setEditingService(null)} className="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div key={item} className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/50 group">
+                            <span className="text-sm text-gray-800 dark:text-gray-200 flex-1">{item}</span>
+                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                              <button
+                                onClick={() => setEditingService({ category: cat.name, oldItem: item, newItem: item })}
+                                className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              {confirmDeleteService === itemDeleteKey ? (
+                                <button
+                                  onClick={() => { admin.removeServiceItem(cat.name, item); setConfirmDeleteService(null); }}
+                                  className="px-2 py-0.5 text-[10px] font-bold text-white bg-red-600 rounded hover:bg-red-700"
+                                >
+                                  Confirm
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setConfirmDeleteService(itemDeleteKey)}
+                                  className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/40 text-red-500"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Add new service item */}
+                    <div className="px-4 py-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={newServiceItems[cat.name] || ''}
+                          onChange={(e) => setNewServiceItems((prev) => ({ ...prev, [cat.name]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const val = (newServiceItems[cat.name] || '').trim();
+                              if (val) {
+                                admin.addServiceItem(cat.name, val);
+                                setNewServiceItems((prev) => ({ ...prev, [cat.name]: '' }));
+                              }
+                            }
+                          }}
+                          placeholder="Add service..."
+                          className={inputCls}
+                        />
+                        <button
+                          onClick={() => {
+                            const val = (newServiceItems[cat.name] || '').trim();
+                            if (val) {
+                              admin.addServiceItem(cat.name, val);
+                              setNewServiceItems((prev) => ({ ...prev, [cat.name]: '' }));
+                            }
+                          }}
+                          disabled={!(newServiceItems[cat.name] || '').trim()}
+                          className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Add new category */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 p-4">
+            <div className="flex items-center gap-2">
+              <input
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newCategoryName.trim()) {
+                    admin.addCategory(newCategoryName.trim());
+                    setNewCategoryName('');
+                  }
+                }}
+                placeholder="New category name..."
+                className={inputCls}
+              />
+              <button
+                onClick={() => {
+                  if (newCategoryName.trim()) {
+                    admin.addCategory(newCategoryName.trim());
+                    setNewCategoryName('');
+                  }
+                }}
+                disabled={!newCategoryName.trim()}
+                className="flex items-center gap-1 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                Add Category
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── JOB ARCHIVE ──────────────────────────────────────────────────── */}
+      {section === 'archive' && <ArchiveViewer />}
 
       {/* ── AUDIT LOGS ───────────────────────────────────────────────────── */}
       {section === 'logs' && (
