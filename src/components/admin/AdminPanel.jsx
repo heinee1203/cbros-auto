@@ -15,8 +15,8 @@ export default function AdminPanel() {
   const [section, setSection] = useState('personnel'); // personnel | settings | backup | logs
 
   // Inline editing states
-  const [editingMech, setEditingMech] = useState(null); // { id, name, shortName } or null
-  const [newMech, setNewMech] = useState({ name: '', shortName: '' });
+  const [editingMech, setEditingMech] = useState(null); // { id, name, shortName, nickname } or null
+  const [newMech, setNewMech] = useState({ name: '', shortName: '', nickname: '' });
   const [editingFD, setEditingFD] = useState(null); // { id, name }
   const [newFD, setNewFD] = useState({ name: '' });
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -84,12 +84,12 @@ export default function AdminPanel() {
   // ── Helpers ──────────────────────────────────────────────────────────────
   const handleAddMech = () => {
     if (!newMech.name.trim() || !newMech.shortName.trim()) return;
-    admin.addMechanic(newMech.name.trim(), newMech.shortName.trim());
-    setNewMech({ name: '', shortName: '' });
+    admin.addMechanic(newMech.name.trim(), newMech.shortName.trim(), newMech.nickname.trim());
+    setNewMech({ name: '', shortName: '', nickname: '' });
   };
   const handleSaveMech = () => {
     if (!editingMech || !editingMech.name.trim() || !editingMech.shortName.trim()) return;
-    admin.updateMechanic(editingMech.id, editingMech.name.trim(), editingMech.shortName.trim());
+    admin.updateMechanic(editingMech.id, editingMech.name.trim(), editingMech.shortName.trim(), (editingMech.nickname || '').trim());
     setEditingMech(null);
   };
   const handleAddFD = () => {
@@ -172,6 +172,7 @@ export default function AdminPanel() {
                   <div key={m.id} className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-950/30">
                     <input value={editingMech.name} onChange={(e) => setEditingMech({ ...editingMech, name: e.target.value })} className={inputCls} placeholder="Full name" />
                     <input value={editingMech.shortName} onChange={(e) => setEditingMech({ ...editingMech, shortName: e.target.value })} className={`${inputCls} w-24`} placeholder="Short" />
+                    <input value={editingMech.nickname || ''} onChange={(e) => setEditingMech({ ...editingMech, nickname: e.target.value })} className={`${inputCls} w-28`} placeholder="Nickname" />
                     <button onClick={handleSaveMech} className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"><Check className="w-3.5 h-3.5" /></button>
                     <button onClick={() => setEditingMech(null)} className="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600"><X className="w-3.5 h-3.5" /></button>
                   </div>
@@ -179,6 +180,9 @@ export default function AdminPanel() {
                   <div key={m.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700/50 group">
                     <span className="text-sm font-medium text-gray-900 dark:text-white flex-1">{m.name}</span>
                     <span className="text-xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-900 px-2 py-0.5 rounded">{m.shortName}</span>
+                    {m.nickname && (
+                      <span className="text-xs text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded font-medium">{m.nickname}</span>
+                    )}
                     <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
                       <button onClick={() => setEditingMech({ ...m })} className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400"><Pencil className="w-3.5 h-3.5" /></button>
                       {confirmDeleteId === m.id ? (
@@ -196,6 +200,7 @@ export default function AdminPanel() {
               <div className="flex items-center gap-2">
                 <input value={newMech.name} onChange={(e) => setNewMech({ ...newMech, name: e.target.value })} placeholder="Full name..." className={inputCls} />
                 <input value={newMech.shortName} onChange={(e) => setNewMech({ ...newMech, shortName: e.target.value })} placeholder="Short" className={`${inputCls} w-24`} />
+                <input value={newMech.nickname} onChange={(e) => setNewMech({ ...newMech, nickname: e.target.value })} placeholder="Nickname" className={`${inputCls} w-28`} />
                 <button onClick={handleAddMech} disabled={!newMech.name.trim() || !newMech.shortName.trim()} className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:pointer-events-none transition-colors shrink-0">
                   <Plus className="w-4 h-4" />
                   Add

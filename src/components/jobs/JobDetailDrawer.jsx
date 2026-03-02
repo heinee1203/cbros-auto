@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore } from '../../stores/jobsStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import MechanicBandwidthWarning from './MechanicBandwidthWarning';
 
 export default function JobDetailDrawer() {
@@ -277,7 +277,7 @@ export default function JobDetailDrawer() {
               <select value={form.assignedMechanic} onChange={handleLeadChange} className={inputCls}>
                 <option value="">Unassigned</option>
                 {mechanics.map((m) => (
-                  <option key={m.id} value={m.name}>{m.name}</option>
+                  <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
                 ))}
               </select>
             </div>
@@ -291,7 +291,7 @@ export default function JobDetailDrawer() {
               >
                 <option value="">None</option>
                 {assistantOptions.map((m) => (
-                  <option key={m.id} value={m.name}>{m.name}</option>
+                  <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
                 ))}
               </select>
             </div>

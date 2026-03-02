@@ -1,6 +1,6 @@
 import { Sun, Moon, Plus, Search, Wrench, FileText, UserCircle, Wrench as WrenchIcon } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 
 export default function Header() {
   const { theme, toggleTheme, openIntakeModal, openEodModal, searchQuery, setSearchQuery, filterFrontDesk, setFilterFrontDesk, filterMechanic, setFilterMechanic } =
@@ -63,7 +63,7 @@ export default function Header() {
         >
           <option value="">All Mechanics</option>
           {mechanics.map((m) => (
-            <option key={m.id} value={m.name}>{m.shortName}</option>
+            <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
           ))}
         </select>
 

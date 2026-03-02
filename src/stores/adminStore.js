@@ -6,18 +6,18 @@ import { DEFAULT_SERVICE_CATEGORIES } from '../data/rosters';
 
 // ── Default seed data (matches original rosters.js) ──────────────────────────
 const DEFAULT_MECHANICS = [
-  { id: 'mech-1', name: 'Chief Mechanic Allan', shortName: 'Allan' },
-  { id: 'mech-2', name: 'Honnel "Inggo"', shortName: 'Inggo' },
-  { id: 'mech-3', name: 'Rosalino "Lino"', shortName: 'Lino' },
-  { id: 'mech-4', name: 'Anthony "Toni"', shortName: 'Toni' },
-  { id: 'mech-5', name: 'Jurell', shortName: 'Jurell' },
-  { id: 'mech-6', name: 'Samuel "Sam"', shortName: 'Sam' },
-  { id: 'mech-7', name: 'Arnold "Nold"', shortName: 'Nold' },
-  { id: 'mech-8', name: 'Joy', shortName: 'Joy' },
-  { id: 'mech-9', name: 'Kevin', shortName: 'Kevin' },
-  { id: 'mech-10', name: 'Ronnel "Buban"', shortName: 'Buban' },
-  { id: 'mech-11', name: 'Joseph', shortName: 'Joseph' },
-  { id: 'mech-12', name: 'Roi', shortName: 'Roi' },
+  { id: 'mech-1', name: 'Chief Mechanic Allan', shortName: 'Allan', nickname: '' },
+  { id: 'mech-2', name: 'Honnel "Inggo"', shortName: 'Inggo', nickname: '' },
+  { id: 'mech-3', name: 'Rosalino "Lino"', shortName: 'Lino', nickname: '' },
+  { id: 'mech-4', name: 'Anthony "Toni"', shortName: 'Toni', nickname: '' },
+  { id: 'mech-5', name: 'Jurell', shortName: 'Jurell', nickname: '' },
+  { id: 'mech-6', name: 'Samuel "Sam"', shortName: 'Sam', nickname: '' },
+  { id: 'mech-7', name: 'Arnold "Nold"', shortName: 'Nold', nickname: '' },
+  { id: 'mech-8', name: 'Joy', shortName: 'Joy', nickname: '' },
+  { id: 'mech-9', name: 'Kevin', shortName: 'Kevin', nickname: '' },
+  { id: 'mech-10', name: 'Ronnel "Buban"', shortName: 'Buban', nickname: '' },
+  { id: 'mech-11', name: 'Joseph', shortName: 'Joseph', nickname: '' },
+  { id: 'mech-12', name: 'Roi', shortName: 'Roi', nickname: '' },
 ];
 
 const DEFAULT_FRONT_DESK = [
@@ -39,6 +39,30 @@ const buildBayArray = (count, type) =>
   }));
 
 const ts = () => format(new Date(), 'MM/dd/yyyy hh:mm a');
+
+// ── Utility: get display name for a mechanic ─────────────────────────────────
+// Returns nickname if set, otherwise first name (derived from full name).
+// Can be called with a mechanic object or a full-name string + mechanics array.
+export const getMechanicDisplay = (mechanicNameOrObj, mechanicsArray) => {
+  if (!mechanicNameOrObj) return '';
+  // If a mechanic object is passed directly
+  if (typeof mechanicNameOrObj === 'object' && mechanicNameOrObj !== null) {
+    const m = mechanicNameOrObj;
+    if (m.nickname) return m.nickname;
+    return m.shortName || m.name?.split(' ')[0] || m.name || '';
+  }
+  // If a name string is passed, look up in the mechanics array
+  if (typeof mechanicNameOrObj === 'string' && Array.isArray(mechanicsArray)) {
+    const m = mechanicsArray.find((mech) => mech.name === mechanicNameOrObj);
+    if (m) {
+      if (m.nickname) return m.nickname;
+      return m.shortName || m.name.split(' ')[0];
+    }
+    // Fallback: mechanic not found in roster (deleted?), show stored name
+    return mechanicNameOrObj;
+  }
+  return String(mechanicNameOrObj);
+};
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 export const useAdminStore = create(
@@ -100,20 +124,20 @@ export const useAdminStore = create(
         })),
 
       // ── Mechanic CRUD ───────────────────────────────────────────────────
-      addMechanic: (name, shortName) => {
+      addMechanic: (name, shortName, nickname = '') => {
         const id = `mech-${uuidv4().slice(0, 8)}`;
         set((s) => ({
-          mechanics: [...s.mechanics, { id, name, shortName }],
+          mechanics: [...s.mechanics, { id, name, shortName, nickname: nickname || '' }],
         }));
-        get().addAuditLog('Added Mechanic', `${name} (${shortName})`);
+        get().addAuditLog('Added Mechanic', `${name} (${shortName}${nickname ? `, nick: ${nickname}` : ''})`);
       },
-      updateMechanic: (id, name, shortName) => {
+      updateMechanic: (id, name, shortName, nickname = '') => {
         set((s) => ({
           mechanics: s.mechanics.map((m) =>
-            m.id === id ? { ...m, name, shortName } : m
+            m.id === id ? { ...m, name, shortName, nickname: nickname || '' } : m
           ),
         }));
-        get().addAuditLog('Updated Mechanic', `${name} (${shortName})`);
+        get().addAuditLog('Updated Mechanic', `${name} (${shortName}${nickname ? `, nick: ${nickname}` : ''})`);
       },
       removeMechanic: (id) => {
         const mech = get().mechanics.find((m) => m.id === id);

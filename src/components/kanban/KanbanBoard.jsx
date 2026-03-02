@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { useJobsStore, getJobMechanics, isMechanicOnJob } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import JobCard from '../jobs/JobCard';
 import JobListView from './JobListView';
 
@@ -70,6 +70,23 @@ export default function KanbanBoard() {
 
   const filteredJobs = useMemo(() => {
     let result = [...jobs];
+
+    // ── Hide future-scheduled Waitlist jobs ──
+    // Only show jobs on the Live Floor if they're due today or earlier, or are walk-ins.
+    // Keeps scheduled future appointments exclusively in the Calendar view.
+    const todayStr = format(new Date(), 'MM/dd/yyyy');
+    const todayNum = (() => {
+      const [m, d, y] = todayStr.split('/');
+      return parseInt(y + m + d, 10);
+    })();
+    result = result.filter((j) => {
+      // Only filter WAITLIST jobs with a future appointment date
+      if (j.status !== JOB_STATUSES.WAITLIST || !j.appointmentDate) return true;
+      const [m, d, y] = j.appointmentDate.split('/');
+      const jobDateNum = parseInt(y + m + d, 10);
+      return jobDateNum <= todayNum; // show today & past, hide future
+    });
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -104,22 +121,8 @@ export default function KanbanBoard() {
       if (grouped[j.status]) grouped[j.status].push(j);
     });
 
-    // Waitlist: filter out future-dated jobs, then FIFO sort
+    // Waitlist: FIFO sort (future-dated jobs already filtered out in filteredJobs)
     if (grouped[JOB_STATUSES.WAITLIST]) {
-      const todayStr = format(new Date(), 'MM/dd/yyyy');
-      const todayNum = (() => {
-        const [m, d, y] = todayStr.split('/');
-        return parseInt(y + m + d, 10);
-      })();
-
-      // Hide jobs with appointment dates in the future from the Live Floor
-      grouped[JOB_STATUSES.WAITLIST] = grouped[JOB_STATUSES.WAITLIST].filter((j) => {
-        if (!j.appointmentDate) return true; // no date → show
-        const [m, d, y] = j.appointmentDate.split('/');
-        const jobDateNum = parseInt(y + m + d, 10);
-        return jobDateNum <= todayNum; // show today and past, hide future
-      });
-
       grouped[JOB_STATUSES.WAITLIST].sort((a, b) => {
         const aHasAppt = !!a.appointmentDate;
         const bHasAppt = !!b.appointmentDate;
@@ -183,21 +186,24 @@ export default function KanbanBoard() {
     const waitlistCount = jobs.filter((j) => j.status === JOB_STATUSES.WAITLIST).length;
     const activeServiceCount = jobs.filter((j) => j.status === JOB_STATUSES.IN_SERVICE).length;
 
-    // Mechanics assigned to active bays (In-Service or Awaiting Parts with a bay)
+    // All unique mechanics assigned to active jobs (any non-DONE status)
+    const activeStatuses = new Set([
+      JOB_STATUSES.WAITLIST,
+      JOB_STATUSES.IN_SERVICE,
+      JOB_STATUSES.AWAITING_PARTS,
+      JOB_STATUSES.READY_FOR_PICKUP,
+    ]);
     const busyMechanics = new Set();
     jobs.forEach((j) => {
-      if (
-        (j.status === JOB_STATUSES.IN_SERVICE || j.status === JOB_STATUSES.AWAITING_PARTS) &&
-        j.assignedBay &&
-        j.assignedMechanic
-      ) {
-        busyMechanics.add(j.assignedMechanic);
+      if (activeStatuses.has(j.status) && !j.isCanceled) {
+        if (j.assignedMechanic) busyMechanics.add(j.assignedMechanic);
+        if (j.assistantMechanic) busyMechanics.add(j.assistantMechanic);
       }
     });
-    const availableMechanicsCount = mechanics.length - busyMechanics.size;
+    const availableMechanicsCount = Math.max(0, mechanics.length - busyMechanics.size);
 
     return { waitlistCount, activeServiceCount, availableMechanicsCount };
-  }, [jobs]);
+  }, [jobs, mechanics]);
 
   // Mechanic load data for the Live Floor — total hours per mechanic across all active jobs
   const mechanicLoadBars = useMemo(() => {
@@ -217,7 +223,7 @@ export default function KanbanBoard() {
     });
     return mechanics.map((m) => ({
       name: m.name,
-      shortName: m.shortName,
+      displayName: getMechanicDisplay(m),
       ...loads[m.name],
     })).filter((m) => m.hours > 0 || m.jobs > 0)
       .sort((a, b) => b.hours - a.hours);
@@ -384,7 +390,7 @@ export default function KanbanBoard() {
     const isDropSuccess = dropSuccessBay === bay.id;
     const isLifter = bay.type === 'lifter';
     const BayIcon = isLifter ? ChevronsUp : Car;
-    const mechanics = job ? getJobMechanics(job) : [];
+    const jobMechanics = job ? getJobMechanics(job).map((n) => getMechanicDisplay(n, mechanics)) : [];
     const isDragSource = draggedFromBay === bay.id;
     const dimmed = job && isBayDimmed(job);
 
@@ -443,10 +449,10 @@ export default function KanbanBoard() {
             <p className="text-xs xl:text-sm font-mono font-semibold text-gray-600 dark:text-gray-300 mt-0.5">
               {job.plateNumber || '—'}
             </p>
-            {mechanics.length > 0 && (
+            {jobMechanics.length > 0 && (
               <div className="flex items-center gap-1 mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
                 <Wrench className="w-3 h-3 shrink-0" />
-                <span className="truncate">{mechanics.join(' & ')}</span>
+                <span className="truncate">{jobMechanics.join(' & ')}</span>
               </div>
             )}
           </>
@@ -561,7 +567,7 @@ export default function KanbanBoard() {
                 <div key={m.name} className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-bold text-gray-800 dark:text-gray-200 truncate">{m.shortName}</span>
+                      <span className="text-[11px] font-bold text-gray-800 dark:text-gray-200 truncate">{m.displayName}</span>
                       <span className={`text-[10px] font-bold ${textColor}`}>
                         {m.hours.toFixed(1)}h
                         {m.hours >= 8 && <AlertTriangle className="w-2.5 h-2.5 inline ml-0.5 -mt-0.5" />}
@@ -1003,7 +1009,7 @@ export default function KanbanBoard() {
                   >
                     <option value="">— Select Lead —</option>
                     {mechanics.map((m) => (
-                      <option key={m.id} value={m.name}>{m.name}</option>
+                      <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
                     ))}
                   </select>
                 </div>
@@ -1022,7 +1028,7 @@ export default function KanbanBoard() {
                   >
                     <option value="">— None —</option>
                     {mechanics.filter((m) => m.name !== serviceModal.leadMechanic).map((m) => (
-                      <option key={m.id} value={m.name}>{m.name}</option>
+                      <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
                     ))}
                   </select>
                 </div>

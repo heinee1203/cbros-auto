@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
-import { X, Download, FileText, Car, Wrench, Clock, CheckCircle2, Settings, Package, ClipboardList, BadgeCheck, Printer, Ban, Archive } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { X, Download, FileText, Car, Wrench, Clock, CheckCircle2, Settings, Package, ClipboardList, BadgeCheck, Printer, Ban, Archive, ShieldCheck, Lock } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore, to12Hour } from '../../stores/jobsStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 
 /**
  * Parse a "MM/dd/yyyy at hh:mm AM/PM" string into a Date object.
@@ -37,8 +37,11 @@ export default function EODReportModal() {
   const jobs = useJobsStore((s) => s.jobs);
   const closeOutDay = useJobsStore((s) => s.closeOutDay);
   const mechanics = useAdminStore((s) => s.mechanics);
-  const [confirmCloseOut, setConfirmCloseOut] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState(false);
   const [closeOutDone, setCloseOutDone] = useState(false);
+  const pinInputRef = useRef(null);
 
   const today = format(new Date(), 'MM/dd/yyyy');
   const todayISO = format(new Date(), 'yyyy-MM-dd');
@@ -211,7 +214,7 @@ export default function EODReportModal() {
         <td style="padding:6px 8px;font-weight:600">${j.year} ${j.make} ${j.model}</td>
         <td style="padding:6px 8px">${j.plateNumber || '-'}</td>
         <td style="padding:6px 8px">${j.customerName}</td>
-        <td style="padding:6px 8px">${j.assignedMechanic ? (mechanics.find(m => m.name === j.assignedMechanic)?.shortName || j.assignedMechanic) : '<span style="color:#ef4444">Unassigned</span>'}</td>
+        <td style="padding:6px 8px">${j.assignedMechanic ? getMechanicDisplay(j.assignedMechanic, mechanics) : '<span style="color:#ef4444">Unassigned</span>'}</td>
         <td style="padding:6px 8px">${j.estimatedManHours || '-'}</td>
         <td style="padding:6px 8px;font-size:11px;color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${rfv || '-'}</td>
       </tr>`;
@@ -223,7 +226,7 @@ export default function EODReportModal() {
         const color = data.hours >= 8 ? '#ef4444' : data.hours >= 5 ? '#f59e0b' : '#10b981';
         const pct = Math.min((data.hours / 10) * 100, 100);
         return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;margin:4px 0;border-radius:8px;border:1px solid #e5e7eb;background:#f9fafb;font-size:12px">
-          <strong style="min-width:80px;white-space:nowrap">${mechanics.find(m => m.name === mechName)?.shortName || mechName}</strong>
+          <strong style="min-width:80px;white-space:nowrap">${getMechanicDisplay(mechName, mechanics)}</strong>
           <div style="flex:1;height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden">
             <div style="height:100%;width:${pct}%;background:${color};border-radius:5px"></div>
           </div>
@@ -540,7 +543,7 @@ export default function EODReportModal() {
                         <td className="py-2 px-2">
                           {j.assignedMechanic ? (
                             <span className="text-gray-600 dark:text-gray-400">
-                              {mechanics.find((m) => m.name === j.assignedMechanic)?.shortName || j.assignedMechanic}
+                              {getMechanicDisplay(j.assignedMechanic, mechanics)}
                             </span>
                           ) : (
                             <span className="text-red-500 font-medium">Unassigned</span>
@@ -606,7 +609,7 @@ export default function EODReportModal() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate">
-                              {mechanics.find((m) => m.name === mechName)?.shortName || mechName}
+                              {getMechanicDisplay(mechName, mechanics)}
                             </span>
                             <span className={`text-[10px] font-bold ${textColor}`}>
                               {data.hours.toFixed(1)}h &middot; {data.jobs} job{data.jobs !== 1 ? 's' : ''}
@@ -664,33 +667,17 @@ export default function EODReportModal() {
                       <CheckCircle2 className="w-5 h-5" />
                       Day closed out successfully! {report.done.length} jobs archived.
                     </div>
-                  ) : confirmCloseOut ? (
-                    <div className="mt-3 flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          closeOutDay();
-                          setCloseOutDone(true);
-                          setConfirmCloseOut(false);
-                        }}
-                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-                      >
-                        <Archive className="w-4 h-4" />
-                        Yes, Close Out Day
-                      </button>
-                      <button
-                        onClick={() => setConfirmCloseOut(false)}
-                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
                   ) : (
                     <button
-                      onClick={() => setConfirmCloseOut(true)}
+                      onClick={() => {
+                        setShowPinModal(true);
+                        setPin('');
+                        setPinError(false);
+                      }}
                       disabled={report.done.length === 0}
                       className="mt-3 flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                     >
-                      <Archive className="w-4 h-4" />
+                      <Lock className="w-4 h-4" />
                       Close Out Day
                     </button>
                   )}
@@ -699,6 +686,110 @@ export default function EODReportModal() {
             </div>
           </div>
         </div>
+
+        {/* ── PIN Authorization Modal ──────────────────────────── */}
+        {showPinModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center">
+            <div className="fixed inset-0 bg-black/60" onClick={() => { setShowPinModal(false); setPin(''); setPinError(false); }} />
+            <div className="relative w-full max-w-sm mx-4 bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 animate-slide-in">
+              {/* Header */}
+              <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-2 bg-orange-100 dark:bg-orange-950/40 rounded-lg">
+                  <ShieldCheck className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 dark:text-white">Authorize End of Day</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">PIN required to proceed</p>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-5">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                  Please enter the authorization PIN to close the shop for today.
+                </p>
+
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Authorization PIN
+                </label>
+                <input
+                  ref={pinInputRef}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={pin}
+                  onChange={(e) => {
+                    setPin(e.target.value.replace(/\D/g, ''));
+                    if (pinError) setPinError(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (pin === '112009') {
+                        closeOutDay();
+                        setCloseOutDone(true);
+                        setShowPinModal(false);
+                        setPin('');
+                        setPinError(false);
+                      } else {
+                        setPinError(true);
+                        setPin('');
+                      }
+                    }
+                  }}
+                  placeholder="••••••"
+                  autoFocus
+                  className={`w-full px-4 py-3 text-center text-2xl font-mono tracking-[0.5em] rounded-lg border-2 transition-colors outline-none ${
+                    pinError
+                      ? 'border-red-400 dark:border-red-500 bg-red-50 dark:bg-red-950/30 focus:border-red-500 dark:focus:border-red-400'
+                      : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 focus:border-orange-500 dark:focus:border-orange-400'
+                  }`}
+                />
+
+                {/* Error message */}
+                {pinError && (
+                  <div className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-red-600 dark:text-red-400">
+                    <X className="w-4 h-4" />
+                    Invalid PIN. Access Denied.
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowPinModal(false);
+                    setPin('');
+                    setPinError(false);
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (pin === '112009') {
+                      closeOutDay();
+                      setCloseOutDone(true);
+                      setShowPinModal(false);
+                      setPin('');
+                      setPinError(false);
+                    } else {
+                      setPinError(true);
+                      setPin('');
+                    }
+                  }}
+                  disabled={pin.length === 0}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

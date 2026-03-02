@@ -22,7 +22,7 @@ import {
 import { useJobsStore, to12Hour } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
 import { JOB_STATUSES, STATUS_ORDER } from '../../data/rosters';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 
 export default function JobCard({ job, onDragStart, onDragEnd, isDragging, forceCollapsed }) {
   const { moveJobForward, moveJobBackward, togglePartsOrdered, assignMechanic, togglePaid, toggleDone, clearBay, setJobStatus } =
@@ -269,7 +269,10 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
                 </span>
               ) : (
                 <span className="text-gray-600 dark:text-gray-400">
-                  {job.assignedMechanic}
+                  {getMechanicDisplay(job.assignedMechanic, mechanics)}
+                  {job.assistantMechanic && (
+                    <span className="text-gray-400 dark:text-gray-500"> + {getMechanicDisplay(job.assistantMechanic, mechanics)}</span>
+                  )}
                 </span>
               )}
             </div>
@@ -397,7 +400,7 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
                     <option value="">Assign...</option>
                     {mechanics.map((m) => (
                       <option key={m.id} value={m.name}>
-                        {m.shortName}
+                        {getMechanicDisplay(m)}
                       </option>
                     ))}
                   </select>

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { AlertTriangle, Clock } from 'lucide-react';
 import { useJobsStore, isMechanicOnJob } from '../../stores/jobsStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 
 /**
  * Shows a warning when the selected mechanic would exceed 8 hours on the given date.
@@ -9,6 +10,8 @@ import { useJobsStore, isMechanicOnJob } from '../../stores/jobsStore';
  */
 export default function MechanicBandwidthWarning({ mechanicName, appointmentDate, estimatedManHours, excludeJobId, label }) {
   const jobs = useJobsStore((s) => s.jobs);
+  const mechanics = useAdminStore((s) => s.mechanics);
+  const displayName = getMechanicDisplay(mechanicName, mechanics);
 
   const warning = useMemo(() => {
     if (!mechanicName || !appointmentDate) return null;
@@ -57,7 +60,7 @@ export default function MechanicBandwidthWarning({ mechanicName, appointmentDate
         {isOverload ? (
           <>
             <span className="font-semibold">Over 8 hours!</span>{' '}
-            {mechanicName}{roleLabel} will have {warning.totalHours}h assigned on {appointmentDate}
+            {displayName}{roleLabel} will have {warning.totalHours}h assigned on {appointmentDate}
             {warning.existingHours > 0 && (
               <span className="block mt-0.5 opacity-80">
                 (Existing: {warning.existingHours}h + This job: {warning.newHours}h)
@@ -66,7 +69,7 @@ export default function MechanicBandwidthWarning({ mechanicName, appointmentDate
           </>
         ) : (
           <>
-            {mechanicName}{roleLabel} has {warning.existingHours}h already assigned on {appointmentDate}.
+            {displayName}{roleLabel} has {warning.existingHours}h already assigned on {appointmentDate}.
             {warning.newHours > 0 && <> Total will be {warning.totalHours}h.</>}
           </>
         )}

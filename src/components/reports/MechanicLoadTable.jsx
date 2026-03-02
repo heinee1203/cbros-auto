@@ -30,7 +30,7 @@ import {
   X,
 } from 'lucide-react';
 import { useJobsStore, to12Hour } from '../../stores/jobsStore';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { JOB_STATUSES } from '../../data/rosters';
 
 export default function MechanicLoadTable() {
@@ -443,7 +443,7 @@ export default function MechanicLoadTable() {
                   className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                 >
                   <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                    {mech.shortName}
+                    {getMechanicDisplay(mech)}
                   </td>
                   {dailyLoads.map((load) => (
                     <td key={load.dateStr} className="py-2 px-2">
@@ -577,7 +577,7 @@ function FilteredJobsTable({ jobs, dateRange }) {
                 <td className="py-2 px-3">
                   {j.assignedMechanic ? (
                     <span className="text-gray-600 dark:text-gray-400">
-                      {mechanics.find((m) => m.name === j.assignedMechanic)?.shortName || j.assignedMechanic}
+                      {getMechanicDisplay(j.assignedMechanic, mechanics)}
                     </span>
                   ) : (
                     <span className="text-red-500 font-medium">—</span>

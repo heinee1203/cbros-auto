@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { parse } from 'date-fns';
 import { useJobsStore } from '../../stores/jobsStore';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { STATUS_LABELS } from '../../data/rosters';
 
 export default function ArchiveViewer() {
@@ -142,7 +142,7 @@ export default function ArchiveViewer() {
           <td style="padding:6px 8px;font-weight:600">${j.year} ${j.make} ${j.model}</td>
           <td style="padding:6px 8px;font-family:monospace">${j.plateNumber || '-'}</td>
           <td style="padding:6px 8px">${j.customerName}</td>
-          <td style="padding:6px 8px">${j.assignedMechanic ? (mechanics.find((m) => m.name === j.assignedMechanic)?.shortName || j.assignedMechanic) : '-'}</td>
+          <td style="padding:6px 8px">${j.assignedMechanic ? getMechanicDisplay(j.assignedMechanic, mechanics) : '-'}</td>
           <td style="padding:6px 8px">${j.serviceStartedAt || '-'}</td>
           <td style="padding:6px 8px">${completed}</td>
         </tr>`;
@@ -412,8 +412,7 @@ export default function ArchiveViewer() {
                         </td>
                         <td className="py-2 px-3 text-gray-600 dark:text-gray-400">
                           {j.assignedMechanic
-                            ? mechanics.find((m) => m.name === j.assignedMechanic)?.shortName ||
-                              j.assignedMechanic
+                            ? getMechanicDisplay(j.assignedMechanic, mechanics)
                             : <span className="text-gray-300 dark:text-gray-600">—</span>}
                         </td>
                         <td className="py-2 px-3 text-gray-600 dark:text-gray-400">

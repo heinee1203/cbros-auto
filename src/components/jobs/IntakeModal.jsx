@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, AlertTriangle, ChevronDown, Footprints, CalendarClock, ClipboardList, CheckCircle2, Hash } from 'lucide-react';
+import { X, AlertTriangle, ChevronDown, Footprints, CalendarClock, ClipboardList, CheckCircle2, Hash, Stethoscope } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore } from '../../stores/jobsStore';
 import { VEHICLE_MAKES, VEHICLE_YEARS } from '../../data/rosters';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import MechanicBandwidthWarning from './MechanicBandwidthWarning';
 
 const initialForm = {
@@ -606,7 +606,7 @@ export default function IntakeModal() {
                   <option value="">Assign later...</option>
                   {mechanics.map((m) => (
                     <option key={m.id} value={m.name}>
-                      {m.name}
+                      {getMechanicDisplay(m)}
                     </option>
                   ))}
                 </select>
@@ -625,7 +625,7 @@ export default function IntakeModal() {
                   <option value="">None</option>
                   {assistantOptions.map((m) => (
                     <option key={m.id} value={m.name}>
-                      {m.name}
+                      {getMechanicDisplay(m)}
                     </option>
                   ))}
                 </select>
@@ -840,6 +840,53 @@ export default function IntakeModal() {
 
             {/* Modal Body — Checkbox Grid */}
             <div className="flex-1 overflow-y-auto p-6">
+              {/* ── CHECK-UP ONLY — prominent quick-select ── */}
+              {(() => {
+                const checkUpLabel = 'Check-Up Only';
+                const isCheckUp = form.reasonForVisit.includes(checkUpLabel);
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => {
+                        const current = new Set(f.reasonForVisit);
+                        if (current.has(checkUpLabel)) {
+                          current.delete(checkUpLabel);
+                        } else {
+                          current.add(checkUpLabel);
+                        }
+                        return { ...f, reasonForVisit: [...current] };
+                      });
+                      if (errors.reasonForVisit) setErrors((er) => ({ ...er, reasonForVisit: null }));
+                    }}
+                    className={`w-full mb-5 flex items-center gap-3 px-5 py-4 rounded-xl border-2 transition-all text-left ${
+                      isCheckUp
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-600 ring-2 ring-emerald-200 dark:ring-emerald-800'
+                        : 'bg-gray-50 dark:bg-gray-800/60 border-gray-300 dark:border-gray-600 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20'
+                    }`}
+                  >
+                    <div className={`p-2.5 rounded-lg shrink-0 ${isCheckUp ? 'bg-emerald-200 dark:bg-emerald-800' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                      <Stethoscope className={`w-6 h-6 ${isCheckUp ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-500 dark:text-gray-400'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-base font-bold ${isCheckUp ? 'text-emerald-800 dark:text-emerald-200' : 'text-gray-800 dark:text-gray-200'}`}>
+                        CHECK-UP ONLY
+                      </p>
+                      <p className={`text-xs mt-0.5 ${isCheckUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                        General inspection — no specific service needed
+                      </p>
+                    </div>
+                    <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                      isCheckUp
+                        ? 'bg-emerald-500 border-emerald-500 dark:bg-emerald-600 dark:border-emerald-600'
+                        : 'border-gray-300 dark:border-gray-600'
+                    }`}>
+                      {isCheckUp && <CheckCircle2 className="w-4 h-4 text-white" />}
+                    </div>
+                  </button>
+                );
+              })()}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {serviceCategories.map((cat) => (
                   <div key={cat.name} className="space-y-2">

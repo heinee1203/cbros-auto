@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { useJobsStore } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
-import { useAdminStore } from '../../stores/adminStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 
 export default function CalendarView() {
   const mechanics = useAdminStore((s) => s.mechanics);
@@ -335,7 +335,7 @@ export default function CalendarView() {
                     }`}
                   >
                     <Wrench className="w-3 h-3" />
-                    {mechanics.find((m) => m.name === mech)?.shortName || mech}: {hours}h
+                    {getMechanicDisplay(mech, mechanics)}: {hours}h
                     {hours > 8 && <AlertTriangle className="w-3 h-3" />}
                   </span>
                 ))}
@@ -447,7 +447,7 @@ export default function CalendarView() {
                             {bj.year} {bj.make} {bj.model}
                             {bj.assignedMechanic && (
                               <span className="text-blue-600 dark:text-blue-300">
-                                — {mechanics.find((m) => m.name === bj.assignedMechanic)?.shortName || bj.assignedMechanic}
+                                — {getMechanicDisplay(bj.assignedMechanic, mechanics)}
                               </span>
                             )}
                           </button>
@@ -517,7 +517,7 @@ export default function CalendarView() {
                           <>
                             {job.assignedMechanic && (
                               <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded">
-                                {mechanics.find((m) => m.name === job.assignedMechanic)?.shortName || job.assignedMechanic}
+                                {getMechanicDisplay(job.assignedMechanic, mechanics)}
                               </span>
                             )}
                             {job.estimatedManHours && (
@@ -536,7 +536,7 @@ export default function CalendarView() {
                             >
                               <option value="">Unassigned</option>
                               {mechanics.map((m) => (
-                                <option key={m.id} value={m.name}>{m.shortName}</option>
+                                <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
                               ))}
                             </select>
                             <input
@@ -563,7 +563,7 @@ export default function CalendarView() {
                                 onClick={() => setEditingInline({ jobId: job.id, mechanic: job.assignedMechanic, hours: job.estimatedManHours || '' })}
                                 className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                               >
-                                {mechanics.find((m) => m.name === job.assignedMechanic)?.shortName || job.assignedMechanic}
+                                {getMechanicDisplay(job.assignedMechanic, mechanics)}
                               </button>
                             ) : (
                               <button

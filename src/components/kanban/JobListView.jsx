@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore } from '../../stores/jobsStore';
+import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
 
 const ROWS_PER_PAGE = 30;
@@ -47,6 +48,7 @@ export default function JobListView({ jobs }) {
   const setEditingJobId = useUIStore((s) => s.setEditingJobId);
   const setCancelingJobId = useUIStore((s) => s.setCancelingJobId);
   const markDonePaid = useJobsStore((s) => s.markDonePaid);
+  const mechanics = useAdminStore((s) => s.mechanics);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
@@ -258,11 +260,11 @@ export default function JobListView({ jobs }) {
                     {job.assignedMechanic ? (
                       <div>
                         <p className="text-sm text-gray-700 dark:text-gray-300">
-                          {job.assignedMechanic}
+                          {getMechanicDisplay(job.assignedMechanic, mechanics)}
                         </p>
                         {job.assistantMechanic && (
                           <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                            + {job.assistantMechanic}
+                            + {getMechanicDisplay(job.assistantMechanic, mechanics)}
                           </p>
                         )}
                       </div>

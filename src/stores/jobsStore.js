@@ -151,7 +151,22 @@ export const useJobsStore = create(
             if (j.id !== id) return j;
             const idx = STATUS_ORDER.indexOf(j.status);
             if (idx > 0) {
-              return { ...j, status: STATUS_ORDER[idx - 1] };
+              const prevStatus = STATUS_ORDER[idx - 1];
+              const updates = { status: prevStatus };
+              // Moving back FROM Done → clear completion/payment timestamps
+              if (j.status === JOB_STATUSES.DONE) {
+                updates.isDone = false;
+                updates.doneAt = null;
+                updates.isPaid = false;
+                updates.paidAt = null;
+                updates.serviceDoneTime = null;
+              }
+              // Moving back FROM Ready for Pickup → clear serviceDone & readyForPickup timestamps
+              if (j.status === JOB_STATUSES.READY_FOR_PICKUP) {
+                updates.serviceDoneTime = null;
+                updates.readyForPickupAt = null;
+              }
+              return { ...j, ...updates };
             }
             return j;
           }),
@@ -162,6 +177,11 @@ export const useJobsStore = create(
           jobs: state.jobs.map((j) => {
             if (j.id !== id) return j;
             const updates = { status };
+            const oldIdx = STATUS_ORDER.indexOf(j.status);
+            const newIdx = STATUS_ORDER.indexOf(status);
+            const isMovingBackward = newIdx < oldIdx;
+
+            // Forward timestamps
             if (status === JOB_STATUSES.IN_SERVICE && !j.serviceStartedAt) {
               updates.serviceStartedAt = formatDateTimestamp(new Date());
             }
@@ -171,6 +191,21 @@ export const useJobsStore = create(
                 updates.serviceDoneTime = formatDateTimestamp(new Date());
               }
             }
+
+            // Moving backward — clear completion / payment fields
+            if (isMovingBackward) {
+              if (j.status === JOB_STATUSES.DONE || oldIdx >= STATUS_ORDER.indexOf(JOB_STATUSES.DONE)) {
+                updates.isDone = false;
+                updates.doneAt = null;
+                updates.isPaid = false;
+                updates.paidAt = null;
+              }
+              if (newIdx < STATUS_ORDER.indexOf(JOB_STATUSES.READY_FOR_PICKUP)) {
+                updates.serviceDoneTime = null;
+                updates.readyForPickupAt = null;
+              }
+            }
+
             return { ...j, ...updates };
           }),
         })),
@@ -210,6 +245,9 @@ export const useJobsStore = create(
               if (!j.serviceDoneTime) updates.serviceDoneTime = formatDateTimestamp(new Date());
             } else if (!nowPaid && j.status === JOB_STATUSES.DONE) {
               updates.status = JOB_STATUSES.READY_FOR_PICKUP;
+              updates.isDone = false;
+              updates.doneAt = null;
+              updates.serviceDoneTime = null;
             }
             return { ...j, ...updates };
           }),
@@ -231,6 +269,9 @@ export const useJobsStore = create(
               if (!j.serviceDoneTime) updates.serviceDoneTime = formatDateTimestamp(new Date());
             } else if (!nowDone && j.status === JOB_STATUSES.DONE) {
               updates.status = JOB_STATUSES.READY_FOR_PICKUP;
+              updates.isPaid = false;
+              updates.paidAt = null;
+              updates.serviceDoneTime = null;
             }
             return { ...j, ...updates };
           }),
