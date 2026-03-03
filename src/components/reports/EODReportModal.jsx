@@ -41,6 +41,8 @@ export default function EODReportModal() {
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
   const [closeOutDone, setCloseOutDone] = useState(false);
+  const [closingOut, setClosingOut] = useState(false);
+  const [closeOutError, setCloseOutError] = useState(null);
   const pinInputRef = useRef(null);
 
   const today = format(new Date(), 'MM/dd/yyyy');
@@ -722,15 +724,23 @@ export default function EODReportModal() {
                     setPin(e.target.value.replace(/\D/g, ''));
                     if (pinError) setPinError(false);
                   }}
-                  onKeyDown={(e) => {
+                  onKeyDown={async (e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
                       if (pin === '112009') {
-                        closeOutDay();
-                        setCloseOutDone(true);
-                        setShowPinModal(false);
-                        setPin('');
-                        setPinError(false);
+                        setClosingOut(true);
+                        setCloseOutError(null);
+                        try {
+                          await closeOutDay();
+                          setCloseOutDone(true);
+                          setShowPinModal(false);
+                        } catch (err) {
+                          setCloseOutError('Failed to close out day. Please try again.');
+                        } finally {
+                          setClosingOut(false);
+                          setPin('');
+                          setPinError(false);
+                        }
                       } else {
                         setPinError(true);
                         setPin('');
@@ -768,23 +778,31 @@ export default function EODReportModal() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (pin === '112009') {
-                      closeOutDay();
-                      setCloseOutDone(true);
-                      setShowPinModal(false);
-                      setPin('');
-                      setPinError(false);
+                      setClosingOut(true);
+                      setCloseOutError(null);
+                      try {
+                        await closeOutDay();
+                        setCloseOutDone(true);
+                        setShowPinModal(false);
+                      } catch (err) {
+                        setCloseOutError('Failed to close out day. Please try again.');
+                      } finally {
+                        setClosingOut(false);
+                        setPin('');
+                        setPinError(false);
+                      }
                     } else {
                       setPinError(true);
                       setPin('');
                     }
                   }}
-                  disabled={pin.length === 0}
+                  disabled={pin.length === 0 || closingOut}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm font-bold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  Confirm
+                  {closingOut ? 'Closing...' : 'Confirm'}
                 </button>
               </div>
             </div>

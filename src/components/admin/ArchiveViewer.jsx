@@ -1,15 +1,32 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
-  Download, Printer, Search, Clock, Ban, ChevronDown, ChevronUp, X,
+  Download, Printer, Search, Clock, Ban, ChevronDown, ChevronUp, X, Loader2,
 } from 'lucide-react';
 import { parse } from 'date-fns';
-import { useJobsStore } from '../../stores/jobsStore';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { STATUS_LABELS } from '../../data/rosters';
+import { fetchAllArchivedJobs } from '../../services/firestoreEOD';
 
 export default function ArchiveViewer() {
-  const archivedJobs = useJobsStore((s) => s.archivedJobs);
   const mechanics = useAdminStore((s) => s.mechanics);
+  const [archivedJobs, setArchivedJobs] = useState([]);
+  const [loadingArchive, setLoadingArchive] = useState(true);
+
+  // Fetch archived jobs from Firestore on mount
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingArchive(true);
+    fetchAllArchivedJobs().then((jobs) => {
+      if (!cancelled) {
+        setArchivedJobs(jobs);
+        setLoadingArchive(false);
+      }
+    }).catch((err) => {
+      console.error('Failed to fetch archived jobs:', err);
+      if (!cancelled) setLoadingArchive(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Filter state
   const [dateFrom, setDateFrom] = useState('');
@@ -210,6 +227,15 @@ export default function ArchiveViewer() {
 
   const inputCls =
     'w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+  if (loadingArchive) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+        <Loader2 className="w-8 h-8 animate-spin mb-3" />
+        <p className="text-sm font-medium">Loading archived jobs...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -32,6 +32,7 @@ export default function IntakeModal() {
   const { intakeModalOpen, closeIntakeModal, intakePreFill } = useUIStore();
   const addJob = useJobsStore((s) => s.addJob);
   const jobs = useJobsStore((s) => s.jobs);
+  const closedDates = useJobsStore((s) => s.closedDates);
   const mechanics = useAdminStore((s) => s.mechanics);
   const frontDesk = useAdminStore((s) => s.frontDesk);
   const slotCapacity = useAdminStore((s) => s.slotCapacity);
@@ -202,9 +203,18 @@ export default function IntakeModal() {
     return errs;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const errs = validate();
+
+    // EOD Lock: block intake for closed dates
+    const targetDate = form.appointmentDate
+      ? format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy')
+      : format(new Date(), 'MM/dd/yyyy');
+    if (closedDates.includes(targetDate)) {
+      errs.appointmentDate = 'This date has been closed out. Please select another date.';
+    }
+
     if (Object.keys(errs).length) {
       setErrors(errs);
       return;
@@ -215,7 +225,7 @@ export default function IntakeModal() {
       appointmentDate = format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy');
     }
 
-    const newJobId = addJob({
+    const newJobId = await addJob({
       ...form,
       appointmentDate,
       preferredTime: form.preferredTime || null,

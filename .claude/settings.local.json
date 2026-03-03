@@ -7,7 +7,13 @@
       "Bash(npx vite --host)",
       "Bash(node:*)",
       "Bash(npm run build:*)",
-      "Bash(timeout 5 tail -f \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Admin-Downloads-CLAUDE-cbros-auto\\\\tasks\\\\b68c552.output\")"
+      "Bash(timeout 5 tail -f \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Admin-Downloads-CLAUDE-cbros-auto\\\\tasks\\\\b68c552.output\")",
+      "Bash(npm install firebase)",
+      "Bash(npm install -D vite-plugin-pwa)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/manifest.json)",
+      "Bash(curl -s http://localhost:5173/icons/icon-192x192.svg)",
+      "Bash(curl -s http://localhost:5173/src/main.jsx)"
     ]
   }
 }
