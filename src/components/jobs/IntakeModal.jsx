@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, AlertTriangle, ChevronDown, Footprints, CalendarClock, ClipboardList, CheckCircle2, Hash, Stethoscope } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
-import { useJobsStore } from '../../stores/jobsStore';
+import { useJobsStore, getMechanicWorkStatus } from '../../stores/jobsStore';
 import { VEHICLE_MAKES, VEHICLE_YEARS } from '../../data/rosters';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import MechanicBandwidthWarning from './MechanicBandwidthWarning';
@@ -135,11 +135,23 @@ export default function IntakeModal() {
     return VEHICLE_MAKES.filter((m) => m.toLowerCase().includes(q));
   }, [makeFilter]);
 
+  // Enrich mechanics with work status for dropdown labels + sorting
+  const enrichedMechanics = useMemo(() => {
+    return mechanics.map((m) => ({
+      ...m,
+      workStatus: getMechanicWorkStatus(m.name, jobs),
+    })).sort((a, b) => {
+      if (a.workStatus.status === 'available' && b.workStatus.status === 'busy') return -1;
+      if (a.workStatus.status === 'busy' && b.workStatus.status === 'available') return 1;
+      return 0;
+    });
+  }, [mechanics, jobs]);
+
   // Assistant mechanics: exclude lead from list
   const assistantOptions = useMemo(() => {
     if (!form.assignedMechanic) return [];
-    return mechanics.filter((m) => m.name !== form.assignedMechanic);
-  }, [form.assignedMechanic]);
+    return enrichedMechanics.filter((m) => m.name !== form.assignedMechanic);
+  }, [form.assignedMechanic, enrichedMechanics]);
 
   // Generate time slots with capacity info and past-time filtering
   const timeSlots = useMemo(() => {
@@ -614,9 +626,9 @@ export default function IntakeModal() {
                   className={inputCls('assignedMechanic')}
                 >
                   <option value="">Assign later...</option>
-                  {mechanics.map((m) => (
-                    <option key={m.id} value={m.name}>
-                      {getMechanicDisplay(m)}
+                  {enrichedMechanics.map((m) => (
+                    <option key={m.id} value={m.name} disabled={m.workStatus.status === 'busy'}>
+                      {getMechanicDisplay(m)}{m.workStatus.label ? ` (${m.workStatus.label})` : ''}{m.workStatus.status === 'busy' ? ' — Busy' : ''}
                     </option>
                   ))}
                 </select>
@@ -634,8 +646,8 @@ export default function IntakeModal() {
                 >
                   <option value="">None</option>
                   {assistantOptions.map((m) => (
-                    <option key={m.id} value={m.name}>
-                      {getMechanicDisplay(m)}
+                    <option key={m.id} value={m.name} disabled={m.workStatus.status === 'busy'}>
+                      {getMechanicDisplay(m)}{m.workStatus.label ? ` (${m.workStatus.label})` : ''}{m.workStatus.status === 'busy' ? ' — Busy' : ''}
                     </option>
                   ))}
                 </select>

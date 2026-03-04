@@ -202,16 +202,10 @@ export default function KanbanBoard() {
     const waitlistCount = jobs.filter((j) => j.status === JOB_STATUSES.WAITLIST).length;
     const activeServiceCount = jobs.filter((j) => j.status === JOB_STATUSES.IN_SERVICE).length;
 
-    // All unique mechanics assigned to active jobs (any non-DONE status)
-    const activeStatuses = new Set([
-      JOB_STATUSES.WAITLIST,
-      JOB_STATUSES.IN_SERVICE,
-      JOB_STATUSES.AWAITING_PARTS,
-      JOB_STATUSES.READY_FOR_PICKUP,
-    ]);
+    // Only IN_SERVICE mechanics are truly "busy" — AWAITING_PARTS mechanics are available
     const busyMechanics = new Set();
     jobs.forEach((j) => {
-      if (activeStatuses.has(j.status) && !j.isCanceled) {
+      if (j.status === JOB_STATUSES.IN_SERVICE && !j.isCanceled) {
         if (j.assignedMechanic) busyMechanics.add(j.assignedMechanic);
         if (j.assistantMechanic) busyMechanics.add(j.assistantMechanic);
       }

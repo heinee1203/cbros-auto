@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sun, Moon, Plus, Search, Wrench, FileText, Lock, LogOut, User } from 'lucide-react';
+import { Sun, Moon, Plus, Search, Wrench, FileText, Lock, LogOut, User, History } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { useAuthStore } from '../../stores/authStore';
 
 export default function Header() {
-  const { theme, toggleTheme, openIntakeModal, openEodModal, searchQuery, setSearchQuery, filterFrontDesk, setFilterFrontDesk, filterMechanic, setFilterMechanic } =
+  const { theme, toggleTheme, openIntakeModal, openEodModal, openVehicleHistory, searchQuery, setSearchQuery, filterFrontDesk, setFilterFrontDesk, filterMechanic, setFilterMechanic } =
     useUIStore();
   const mechanics = useAdminStore((s) => s.mechanics);
   const frontDesk = useAdminStore((s) => s.frontDesk);
@@ -113,6 +113,14 @@ export default function Header() {
         >
           <FileText className="w-4 h-4" />
           <span className="hidden sm:inline">EOD Report</span>
+        </button>
+
+        <button
+          onClick={() => openVehicleHistory()}
+          className="flex items-center gap-2 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
+        >
+          <History className="w-4 h-4" />
+          <span className="hidden sm:inline">History</span>
         </button>
 
         <button

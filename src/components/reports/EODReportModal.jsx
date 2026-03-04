@@ -31,6 +31,45 @@ const computeActualHours = (job) => {
   return Math.max(0, (end - start) / (1000 * 60 * 60));
 };
 
+/**
+ * Extract the date portion ("MM/dd/yyyy") from a "MM/dd/yyyy at HH:mm AM/PM" timestamp.
+ */
+const extractDateFromTimestamp = (str) => {
+  if (!str) return null;
+  const match = str.match(/^(\d{2}\/\d{2}\/\d{4})/);
+  return match ? match[1] : null;
+};
+
+/**
+ * Check if a job is relevant to today's EOD report.
+ *
+ * Rules:
+ *  1. If the job has an appointmentDate in the FUTURE (not today),
+ *     only include it if service was actually started or completed today.
+ *  2. If appointmentDate === today → always include.
+ *  3. If no appointmentDate (walk-in) → include if received today or had activity today.
+ */
+const isRelevantToday = (job, todayStr) => {
+  // ── Jobs with a future appointment date ──
+  // Exclude unless service was actively worked on / completed today
+  if (job.appointmentDate && job.appointmentDate !== todayStr) {
+    if (extractDateFromTimestamp(job.serviceStartedAt) === todayStr) return true;
+    if (extractDateFromTimestamp(job.serviceDoneTime) === todayStr) return true;
+    return false;
+  }
+
+  // ── Scheduled for today ──
+  if (job.appointmentDate === todayStr) return true;
+
+  // ── Walk-ins (no appointmentDate) ──
+  // Include if received today or had service activity today
+  if (job.dateReceived === todayStr) return true;
+  if (extractDateFromTimestamp(job.serviceStartedAt) === todayStr) return true;
+  if (extractDateFromTimestamp(job.serviceDoneTime) === todayStr) return true;
+
+  return false;
+};
+
 export default function EODReportModal() {
   const { eodModalOpen, closeEodModal } = useUIStore();
   const jobs = useJobsStore((s) => s.jobs);
@@ -66,7 +105,18 @@ export default function EODReportModal() {
   }).format(pstNow);
 
   const report = useMemo(() => {
-    const allJobs = jobs;
+    // Filter to jobs relevant to today: received today, scheduled today, or with service activity today
+    const allJobs = jobs.filter((j) => isRelevantToday(j, today));
+
+    // Unfiltered counts for Close Out Day section (archives ALL done/cancelled regardless of daily filter)
+    const closeOutDoneCount = jobs.filter((j) => j.status === JOB_STATUSES.DONE).length;
+    const closeOutOngoingCount = jobs.filter(
+      (j) =>
+        j.status === JOB_STATUSES.WAITLIST ||
+        j.status === JOB_STATUSES.IN_SERVICE ||
+        j.status === JOB_STATUSES.AWAITING_PARTS ||
+        j.status === JOB_STATUSES.READY_FOR_PICKUP
+    ).length;
 
     // Jobs by status
     const waitlist = allJobs.filter((j) => j.status === JOB_STATUSES.WAITLIST);
@@ -156,6 +206,9 @@ export default function EODReportModal() {
       mechanicLoads,
       completedToday,
       canceledJobs,
+      closeOutDoneCount,
+      closeOutOngoingCount,
+      allReportJobs: allJobs,
     };
   }, [jobs, today]);
 
@@ -173,8 +226,8 @@ export default function EODReportModal() {
       'Paid', 'Internal Notes',
     ].join(','));
 
-    // All jobs sorted by intake time — no limit
-    const allReportJobs = [...jobs].sort((a, b) => {
+    // Filtered jobs sorted by intake time — only today's relevant jobs
+    const allReportJobs = [...report.allReportJobs].sort((a, b) => {
       const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return aTime - bTime;
@@ -745,13 +798,13 @@ export default function EODReportModal() {
                 <div className="flex-1">
                   <h3 className="text-sm font-bold text-orange-800 dark:text-orange-200">Close Out Day</h3>
                   <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                    Archive all <strong>Done</strong> and <strong>Cancelled</strong> jobs ({report.done.length} jobs).
-                    Active jobs ({report.ongoingJobs.length} jobs in Waitlist, In-Service, Awaiting Parts, Ready for Pickup) will carry over to the next day.
+                    Archive all <strong>Done</strong> and <strong>Cancelled</strong> jobs ({report.closeOutDoneCount} jobs).
+                    Active jobs ({report.closeOutOngoingCount} jobs in Waitlist, In-Service, Awaiting Parts, Ready for Pickup) will carry over to the next day.
                   </p>
                   {closeOutDone ? (
                     <div className="mt-3 flex items-center gap-2 text-sm font-bold text-emerald-700 dark:text-emerald-300">
                       <CheckCircle2 className="w-5 h-5" />
-                      Day closed out successfully! {report.done.length} jobs archived.
+                      Day closed out successfully! {report.closeOutDoneCount} jobs archived.
                     </div>
                   ) : (
                     <button
@@ -760,7 +813,7 @@ export default function EODReportModal() {
                         setPin('');
                         setPinError(false);
                       }}
-                      disabled={report.done.length === 0}
+                      disabled={report.closeOutDoneCount === 0}
                       className="mt-3 flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:opacity-40 disabled:pointer-events-none transition-colors"
                     >
                       <Lock className="w-4 h-4" />

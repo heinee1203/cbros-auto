@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { format } from 'date-fns';
-import { JOB_STATUSES, STATUS_ORDER } from '../data/rosters';
+import { JOB_STATUSES, STATUS_ORDER, STATUS_LABELS } from '../data/rosters';
 import {
   firestoreAddJob,
   firestoreUpdateJob,
@@ -73,6 +73,34 @@ export const getJobMechanics = (job) => {
  */
 export const isMechanicOnJob = (job, mechanicName) => {
   return job.assignedMechanic === mechanicName || job.assistantMechanic === mechanicName;
+};
+
+/**
+ * Helper: get a mechanic's current work status across all active jobs.
+ * Returns { status: 'available'|'busy', activeJobs: [], label: string|null }
+ * Only IN_SERVICE counts as truly "busy". AWAITING_PARTS, WAITLIST, READY_FOR_PICKUP = available.
+ */
+export const getMechanicWorkStatus = (mechanicName, jobs) => {
+  if (!mechanicName) return { status: 'available', activeJobs: [], label: null };
+  const activeJobs = jobs.filter(
+    (j) =>
+      !j.isCanceled &&
+      j.status !== JOB_STATUSES.DONE &&
+      isMechanicOnJob(j, mechanicName)
+  );
+  if (activeJobs.length === 0) return { status: 'available', activeJobs: [], label: null };
+
+  const inServiceJob = activeJobs.find((j) => j.status === JOB_STATUSES.IN_SERVICE);
+  if (inServiceJob) {
+    return { status: 'busy', activeJobs, label: 'In-Service' };
+  }
+  // All non-IN_SERVICE statuses are considered available (AWAITING_PARTS, WAITLIST, READY_FOR_PICKUP)
+  const primaryJob = activeJobs[0];
+  const label =
+    activeJobs.every((j) => j.status === JOB_STATUSES.AWAITING_PARTS)
+      ? 'Awaiting Parts'
+      : STATUS_LABELS[primaryJob.status] || null;
+  return { status: 'available', activeJobs, label };
 };
 
 /**

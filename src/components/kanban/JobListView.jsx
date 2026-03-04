@@ -10,11 +10,13 @@ import {
   Ban,
   Inbox,
   CheckCircle2,
+  Layers,
 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
-import { useJobsStore } from '../../stores/jobsStore';
+import { useJobsStore, getMechanicWorkStatus } from '../../stores/jobsStore';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
+import QuickViewModal from '../jobs/QuickViewModal';
 
 const ROWS_PER_PAGE = 30;
 
@@ -48,11 +50,13 @@ export default function JobListView({ jobs }) {
   const setEditingJobId = useUIStore((s) => s.setEditingJobId);
   const setCancelingJobId = useUIStore((s) => s.setCancelingJobId);
   const markDonePaid = useJobsStore((s) => s.markDonePaid);
+  const allJobs = useJobsStore((s) => s.jobs);
   const mechanics = useAdminStore((s) => s.mechanics);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
   const [confirmDonePaidId, setConfirmDonePaidId] = useState(null); // job ID awaiting confirm
+  const [quickViewJob, setQuickViewJob] = useState(null);
 
   // Sort jobs by queue number
   const sortedJobs = useMemo(() => {
@@ -190,11 +194,15 @@ export default function JobListView({ jobs }) {
                   key={job.id}
                   className={`border-b border-gray-100 dark:border-gray-800 transition-colors ${getRowColor(job)}`}
                 >
-                  {/* 1. Queue # */}
+                  {/* 1. Queue # — clickable for Quick View */}
                   <td className="py-2 px-3">
-                    <span className="inline-flex items-center text-xs font-bold text-blue-600 dark:text-blue-400 font-mono tracking-wide">
+                    <button
+                      onClick={() => setQuickViewJob(job)}
+                      className="inline-flex items-center text-xs font-bold text-blue-600 dark:text-blue-400 font-mono tracking-wide hover:underline hover:text-blue-700 dark:hover:text-blue-300 transition-colors cursor-pointer"
+                      title={`Quick view: ${job.year} ${job.make} ${job.model}`}
+                    >
                       {job.queueNumber || '-'}
-                    </span>
+                    </button>
                   </td>
 
                   {/* 2. Intake Time */}
@@ -257,18 +265,27 @@ export default function JobListView({ jobs }) {
 
                   {/* 6. Mechanic */}
                   <td className="py-2 px-3">
-                    {job.assignedMechanic ? (
-                      <div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">
-                          {getMechanicDisplay(job.assignedMechanic, mechanics)}
-                        </p>
-                        {job.assistantMechanic && (
-                          <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                            + {getMechanicDisplay(job.assistantMechanic, mechanics)}
+                    {job.assignedMechanic ? (() => {
+                      const mechStatus = getMechanicWorkStatus(job.assignedMechanic, allJobs);
+                      const isDualTask = mechStatus.activeJobs.length > 1;
+                      return (
+                        <div>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                            {getMechanicDisplay(job.assignedMechanic, mechanics)}
+                            {isDualTask && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400" title={`Assigned to ${mechStatus.activeJobs.length} active jobs`}>
+                                <Layers className="w-2.5 h-2.5" />
+                              </span>
+                            )}
                           </p>
-                        )}
-                      </div>
-                    ) : !isCanceled ? (
+                          {job.assistantMechanic && (
+                            <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                              + {getMechanicDisplay(job.assistantMechanic, mechanics)}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })() : !isCanceled ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
                         <AlertTriangle className="w-3 h-3" />
                         Unassigned
@@ -397,6 +414,11 @@ export default function JobListView({ jobs }) {
             <span className="font-semibold text-gray-700 dark:text-gray-300">{sortedJobs.length}</span> job{sortedJobs.length !== 1 ? 's' : ''} total
           </p>
         </div>
+      )}
+
+      {/* Quick View Modal */}
+      {quickViewJob && (
+        <QuickViewModal job={quickViewJob} onClose={() => setQuickViewJob(null)} />
       )}
     </div>
   );

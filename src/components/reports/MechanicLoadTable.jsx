@@ -28,10 +28,69 @@ import {
   Trophy,
   Filter,
   X,
+  Clock,
 } from 'lucide-react';
-import { useJobsStore, to12Hour } from '../../stores/jobsStore';
+import { useJobsStore, to12Hour, isMechanicOnJob } from '../../stores/jobsStore';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import { JOB_STATUSES } from '../../data/rosters';
+
+/**
+ * Parse a timestamp like "03/04/2026 at 09:15 AM" into a Date object.
+ * Returns null if the string is missing or unparseable.
+ */
+const parseTimestamp = (str) => {
+  if (!str) return null;
+  const m = str.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/i);
+  if (!m) return null;
+  let hours = parseInt(m[4], 10);
+  const mins = parseInt(m[5], 10);
+  const ampm = m[6].toUpperCase();
+  if (ampm === 'PM' && hours !== 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  return new Date(parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10), hours, mins);
+};
+
+/**
+ * Extract just the date portion "MM/dd/yyyy" from a full timestamp string.
+ */
+const extractDateFromTimestamp = (str) => {
+  if (!str) return null;
+  const m = str.match(/^(\d{2}\/\d{2}\/\d{4})/);
+  return m ? m[1] : null;
+};
+
+/**
+ * Determine if a job is "completed" (service work is done).
+ * Ready for Pickup, Done, or Done+Paid all count.
+ */
+const isJobCompleted = (j) =>
+  j.status === JOB_STATUSES.READY_FOR_PICKUP || j.status === JOB_STATUSES.DONE;
+
+/**
+ * Calculate actual hours worked from serviceDoneTime - serviceStartedAt.
+ * Returns null if either timestamp is missing/unparseable.
+ */
+const calcActualHours = (j) => {
+  const start = parseTimestamp(j.serviceStartedAt);
+  const end = parseTimestamp(j.serviceDoneTime);
+  if (!start || !end) return null;
+  const diffMs = end - start;
+  if (diffMs <= 0) return null;
+  return Math.round((diffMs / 3600000) * 10) / 10; // round to 1 decimal
+};
+
+/**
+ * Get effective hours for a job:
+ * - Completed jobs with timestamps → actual hours (serviceDone - serviceStart)
+ * - Falls back to estimatedManHours
+ */
+const getJobHours = (j) => {
+  if (isJobCompleted(j)) {
+    const actual = calcActualHours(j);
+    if (actual !== null) return actual;
+  }
+  return j.estimatedManHours || 0;
+};
 
 export default function MechanicLoadTable() {
   const [weekOffset, setWeekOffset] = useState(0);
@@ -67,25 +126,56 @@ export default function MechanicLoadTable() {
     return presets;
   }, []);
 
-  // Mechanic load data for the week view
+  // Mechanic load data for the week view (heatmap)
+  // Includes completed jobs (Done/Ready for Pickup) with actual hours calculated
   const loadData = useMemo(() => {
     return mechanics.map((mech) => {
       const dailyLoads = days.map((day) => {
         const dateStr = format(day, 'MM/dd/yyyy');
-        const mechJobs = jobs.filter(
-          (j) =>
-            j.assignedMechanic === mech.name &&
-            j.appointmentDate === dateStr &&
-            j.estimatedManHours
-        );
-        const total = mechJobs.reduce((s, j) => s + (j.estimatedManHours || 0), 0);
-        return { dateStr, total, count: mechJobs.length };
+        const mechJobs = jobs.filter((j) => {
+          if (j.isCanceled) return false;
+          if (!isMechanicOnJob(j, mech.name)) return false;
+          // Match by appointment date, received date, or service activity date
+          if (j.appointmentDate === dateStr) return true;
+          if (!j.appointmentDate && j.dateReceived === dateStr) return true;
+          // Also include completed jobs whose service was done on this date
+          if (isJobCompleted(j) && extractDateFromTimestamp(j.serviceDoneTime) === dateStr) return true;
+          if (extractDateFromTimestamp(j.serviceStartedAt) === dateStr) return true;
+          return false;
+        });
+        // De-duplicate (a job might match on multiple criteria)
+        const unique = [...new Map(mechJobs.map((j) => [j.id, j])).values()];
+        const total = unique.reduce((s, j) => s + getJobHours(j), 0);
+        const totalRounded = Math.round(total * 10) / 10;
+        return { dateStr, total: totalRounded, count: unique.length, jobs: unique };
       });
-      const weekTotal = dailyLoads.reduce((s, d) => s + d.total, 0);
+      const weekTotal = Math.round(dailyLoads.reduce((s, d) => s + d.total, 0) * 10) / 10;
       const weekJobs = dailyLoads.reduce((s, d) => s + d.count, 0);
       return { mech, dailyLoads, weekTotal, weekJobs };
     });
   }, [jobs, days, mechanics]);
+
+  // Shop-wide daily totals (de-duplicated by job ID, using actual hours for completed jobs)
+  const shopTotals = useMemo(() => {
+    const dailyTotals = days.map((day, dayIdx) => {
+      const seen = new Map();
+      loadData.forEach(({ dailyLoads }) => {
+        dailyLoads[dayIdx].jobs.forEach((j) => {
+          if (!seen.has(j.id)) seen.set(j.id, j);
+        });
+      });
+      const uniqueJobs = Array.from(seen.values());
+      const total = Math.round(uniqueJobs.reduce((s, j) => s + getJobHours(j), 0) * 10) / 10;
+      return { count: uniqueJobs.length, total };
+    });
+    const weekGrandTotal = Math.round(dailyTotals.reduce((s, d) => s + d.total, 0) * 10) / 10;
+    const weekGrandJobs = dailyTotals.reduce((s, d) => s + d.count, 0);
+    return { dailyTotals, weekGrandTotal, weekGrandJobs };
+  }, [loadData, days]);
+
+  // Tooltip and selected cell state for heatmap interaction
+  const [tooltip, setTooltip] = useState(null);
+  const [selectedCell, setSelectedCell] = useState(null);
 
   // Job Finished count (Ready for Pickup + isPaid)
   const jobFinishedCount = useMemo(() => {
@@ -440,52 +530,70 @@ export default function MechanicLoadTable() {
               {loadData.map(({ mech, dailyLoads, weekTotal, weekJobs }) => (
                 <tr
                   key={mech.id}
-                  className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                  className="border-b border-gray-100 dark:border-gray-800"
                 >
                   <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
                     {getMechanicDisplay(mech)}
                   </td>
-                  {dailyLoads.map((load) => (
-                    <td key={load.dateStr} className="py-2 px-2">
-                      {load.total > 0 ? (
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden relative" title={`${load.total}h — ${load.count} job${load.count !== 1 ? 's' : ''}`}>
-                            <div
-                              className={`h-full rounded-full transition-all ${
-                                load.total >= 8
-                                  ? 'bg-red-500 dark:bg-red-400'
-                                  : load.total >= 5
-                                  ? 'bg-amber-500 dark:bg-amber-400'
-                                  : 'bg-emerald-500 dark:bg-emerald-400'
-                              }`}
-                              style={{ width: `${Math.min((load.total / 10) * 100, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-[10px] font-bold leading-none ${
-                            load.total >= 8
-                              ? 'text-red-600 dark:text-red-400'
-                              : load.total >= 5
-                              ? 'text-amber-600 dark:text-amber-400'
-                              : 'text-emerald-600 dark:text-emerald-400'
-                          }`}>
-                            {load.total}h
-                            {load.total >= 8 && <AlertTriangle className="w-2.5 h-2.5 inline ml-0.5 -mt-0.5" />}
-                          </span>
+                  {dailyLoads.map((load) => {
+                    const isSelected = selectedCell?.mechName === mech.name && selectedCell?.dateStr === load.dateStr;
+                    const cellBg = load.count === 0
+                      ? 'bg-gray-50 dark:bg-gray-800/50'
+                      : load.total > 8
+                      ? 'bg-red-100 dark:bg-red-900/40'
+                      : load.total > 4
+                      ? 'bg-amber-100 dark:bg-amber-900/40'
+                      : 'bg-emerald-100 dark:bg-emerald-900/40';
+                    const cellText = load.count === 0
+                      ? 'text-gray-300 dark:text-gray-600'
+                      : load.total > 8
+                      ? 'text-red-700 dark:text-red-300'
+                      : load.total > 4
+                      ? 'text-amber-700 dark:text-amber-300'
+                      : 'text-emerald-700 dark:text-emerald-300';
+                    return (
+                      <td key={load.dateStr} className="py-1.5 px-1.5">
+                        <div
+                          className={`rounded-lg px-2 py-2 text-center transition-all ${cellBg} ${
+                            load.count > 0 ? 'cursor-pointer hover:ring-2 hover:ring-blue-400/50' : ''
+                          } ${isSelected ? 'ring-2 ring-blue-500 dark:ring-blue-400' : ''}`}
+                          onMouseEnter={(e) => {
+                            if (load.count === 0) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setTooltip({ mechName: getMechanicDisplay(mech), dateStr: load.dateStr, jobs: load.jobs, rect });
+                          }}
+                          onMouseLeave={() => setTooltip(null)}
+                          onClick={() => {
+                            if (load.count === 0) return;
+                            if (isSelected) {
+                              setSelectedCell(null);
+                            } else {
+                              setSelectedCell({ mechName: getMechanicDisplay(mech), dateStr: load.dateStr, jobs: load.jobs });
+                            }
+                          }}
+                        >
+                          {load.count > 0 ? (
+                            <>
+                              <span className={`text-xs font-bold ${cellText}`}>
+                                {load.count} / {load.total}h
+                              </span>
+                              {load.total > 8 && (
+                                <AlertTriangle className={`w-3 h-3 inline ml-1 -mt-0.5 ${cellText}`} />
+                              )}
+                            </>
+                          ) : (
+                            <span className={`text-xs ${cellText}`}>—</span>
+                          )}
                         </div>
-                      ) : (
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="w-full h-3 bg-gray-100 dark:bg-gray-800 rounded-full" />
-                          <span className="text-[10px] text-gray-300 dark:text-gray-600">-</span>
-                        </div>
-                      )}
-                    </td>
-                  ))}
+                      </td>
+                    );
+                  })}
                   <td className="py-2 px-3 text-center">
                     {weekTotal > 0 ? (
                       <div className="flex flex-col items-center gap-1">
                         <MiniGauge value={weekTotal} max={40} />
                         <span className={`text-[10px] font-bold ${
-                          weekTotal >= 40 ? 'text-red-600 dark:text-red-400' : weekTotal >= 25 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                          weekTotal > 40 ? 'text-red-600 dark:text-red-400' : weekTotal > 20 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
                         }`}>
                           {weekTotal}h
                         </span>
@@ -494,15 +602,216 @@ export default function MechanicLoadTable() {
                         </span>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-300 dark:text-gray-600">-</span>
+                      <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
                     )}
                   </td>
                 </tr>
               ))}
+              {/* Shop Totals Row */}
+              <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/50">
+                <td className="py-2 px-3 font-bold text-gray-900 dark:text-white whitespace-nowrap text-xs uppercase tracking-wide">
+                  Shop Total
+                </td>
+                {shopTotals.dailyTotals.map((dt, idx) => {
+                  const cellBg = dt.count === 0
+                    ? ''
+                    : dt.total > 8 * mechanics.length * 0.5
+                    ? 'bg-red-50 dark:bg-red-950/30'
+                    : dt.total > 4 * mechanics.length * 0.5
+                    ? 'bg-amber-50 dark:bg-amber-950/30'
+                    : 'bg-emerald-50 dark:bg-emerald-950/30';
+                  const cellText = dt.count === 0
+                    ? 'text-gray-300 dark:text-gray-600'
+                    : dt.total > 8 * mechanics.length * 0.5
+                    ? 'text-red-700 dark:text-red-300'
+                    : dt.total > 4 * mechanics.length * 0.5
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-emerald-700 dark:text-emerald-300';
+                  return (
+                    <td key={idx} className="py-1.5 px-1.5">
+                      <div className={`rounded-lg px-2 py-2 text-center ${cellBg}`}>
+                        {dt.count > 0 ? (
+                          <span className={`text-xs font-bold ${cellText}`}>
+                            {dt.count} / {dt.total}h
+                          </span>
+                        ) : (
+                          <span className={`text-xs ${cellText}`}>—</span>
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+                <td className="py-2 px-3 text-center">
+                  {shopTotals.weekGrandTotal > 0 ? (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className={`text-xs font-bold ${
+                        shopTotals.weekGrandTotal > 40 * mechanics.length * 0.5 ? 'text-red-600 dark:text-red-400' : shopTotals.weekGrandTotal > 20 * mechanics.length * 0.5 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}>
+                        {shopTotals.weekGrandTotal}h
+                      </span>
+                      <span className="text-[9px] text-gray-400 dark:text-gray-500">
+                        {shopTotals.weekGrandJobs} job{shopTotals.weekGrandJobs !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+                  )}
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Hover Tooltip */}
+      {tooltip && (() => {
+        const completed = tooltip.jobs.filter(isJobCompleted);
+        const pending = tooltip.jobs.filter((j) => !isJobCompleted(j));
+        return (
+          <div
+            className="fixed z-[200] pointer-events-none bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 max-w-xs"
+            style={{
+              left: Math.min(tooltip.rect.left, window.innerWidth - 320),
+              top: tooltip.rect.bottom + 8,
+            }}
+          >
+            <p className="text-xs font-bold text-gray-900 dark:text-white mb-1.5">
+              {tooltip.mechName} — {tooltip.dateStr}
+            </p>
+            {completed.length > 0 && (
+              <>
+                <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mb-1 mt-1">
+                  <CheckCircle2 className="w-3 h-3" /> Completed ({completed.length})
+                </p>
+                <div className="space-y-1 mb-1.5">
+                  {completed.slice(0, 3).map((j) => (
+                    <div key={j.id} className="text-[11px] leading-tight pl-1 border-l-2 border-emerald-300 dark:border-emerald-700">
+                      <p className="font-medium text-gray-800 dark:text-gray-200">
+                        {j.year} {j.make} {j.model}
+                      </p>
+                      <p className="text-gray-400 dark:text-gray-500">
+                        {getJobHours(j)}h {calcActualHours(j) !== null ? 'actual' : 'est.'}
+                      </p>
+                    </div>
+                  ))}
+                  {completed.length > 3 && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-1">
+                      +{completed.length - 3} more...
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+            {pending.length > 0 && (
+              <>
+                <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1 mb-1 mt-1">
+                  <Clock className="w-3 h-3" /> Pending ({pending.length})
+                </p>
+                <div className="space-y-1">
+                  {pending.slice(0, 3).map((j) => (
+                    <div key={j.id} className="text-[11px] leading-tight pl-1 border-l-2 border-blue-300 dark:border-blue-700">
+                      <p className="font-medium text-gray-800 dark:text-gray-200">
+                        {j.year} {j.make} {j.model}
+                      </p>
+                      <p className="text-gray-400 dark:text-gray-500">
+                        {j.estimatedManHours || 0}h est.
+                      </p>
+                    </div>
+                  ))}
+                  {pending.length > 3 && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-1">
+                      +{pending.length - 3} more...
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Selected Cell Detail */}
+      {selectedCell && (() => {
+        const completed = selectedCell.jobs.filter(isJobCompleted);
+        const pending = selectedCell.jobs.filter((j) => !isJobCompleted(j));
+        const JobDetailTable = ({ jobList, label, icon: Icon, accentColor }) => (
+          jobList.length > 0 && (
+            <div>
+              <div className={`px-4 py-2 flex items-center gap-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30`}>
+                <Icon className={`w-3.5 h-3.5 ${accentColor}`} />
+                <span className={`text-[11px] font-semibold uppercase tracking-wide ${accentColor}`}>
+                  {label} ({jobList.length})
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">CS #</th>
+                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Vehicle</th>
+                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Services</th>
+                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Hours</th>
+                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobList.map((j) => {
+                      const actual = calcActualHours(j);
+                      const hours = getJobHours(j);
+                      const isDone = isJobCompleted(j);
+                      return (
+                        <tr key={j.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                          <td className="py-2 px-3 font-mono font-bold text-blue-600 dark:text-blue-400">
+                            {j.queueNumber || '—'}
+                          </td>
+                          <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            {j.year} {j.make} {j.model}
+                          </td>
+                          <td className="py-2 px-3 text-gray-600 dark:text-gray-400 max-w-[200px] truncate">
+                            {Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join(', ') : j.reasonForVisit || '—'}
+                          </td>
+                          <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            {hours}h
+                            {isDone && actual !== null ? (
+                              <span className="text-[9px] text-emerald-600 dark:text-emerald-400 ml-1">actual</span>
+                            ) : (
+                              <span className="text-[9px] text-gray-400 dark:text-gray-500 ml-1">est.</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3">
+                            <StatusBadge status={j.status} isPaid={j.isPaid} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        );
+        return (
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <Wrench className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                {selectedCell.mechName} — {selectedCell.dateStr}
+                <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                  ({selectedCell.jobs.length} job{selectedCell.jobs.length !== 1 ? 's' : ''})
+                </span>
+              </h4>
+              <button
+                onClick={() => setSelectedCell(null)}
+                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
+            <JobDetailTable jobList={completed} label="Completed" icon={CheckCircle2} accentColor="text-emerald-600 dark:text-emerald-400" />
+            <JobDetailTable jobList={pending} label="Pending" icon={Clock} accentColor="text-blue-600 dark:text-blue-400" />
+          </div>
+        );
+      })()}
 
       {/* Filtered Jobs Table (when date range is active) */}
       {dateRange.start && dateRange.end && (
@@ -624,22 +933,25 @@ function MiniGauge({ value, max }) {
   );
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, isPaid }) {
   const styles = {
     WAITLIST: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400',
     IN_SERVICE: 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300',
     AWAITING_PARTS: 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300',
     READY_FOR_PICKUP: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300',
+    DONE: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300',
   };
   const labels = {
     WAITLIST: 'Waitlist',
     IN_SERVICE: 'In-Service',
     AWAITING_PARTS: 'Awaiting Parts',
     READY_FOR_PICKUP: 'Ready',
+    DONE: 'Done',
   };
+  const label = status === 'DONE' && isPaid ? 'Done / Paid' : (labels[status] || status);
   return (
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${styles[status] || ''}`}>
-      {labels[status] || status}
+      {label}
     </span>
   );
 }

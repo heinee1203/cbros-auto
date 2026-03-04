@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ChevronRight,
   ChevronLeft,
@@ -18,8 +18,9 @@ import {
   CheckCircle2,
   XCircle,
   Ban,
+  Layers,
 } from 'lucide-react';
-import { useJobsStore, to12Hour } from '../../stores/jobsStore';
+import { useJobsStore, to12Hour, getMechanicWorkStatus } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
 import { JOB_STATUSES, STATUS_ORDER } from '../../data/rosters';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
@@ -27,6 +28,7 @@ import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 export default function JobCard({ job, onDragStart, onDragEnd, isDragging, forceCollapsed }) {
   const { moveJobForward, moveJobBackward, togglePartsOrdered, assignMechanic, togglePaid, toggleDone, clearBay, setJobStatus } =
     useJobsStore();
+  const jobs = useJobsStore((s) => s.jobs);
   const setEditingJobId = useUIStore((s) => s.setEditingJobId);
   const setBayAssignmentPending = useUIStore((s) => s.setBayAssignmentPending);
   const setCancelingJobId = useUIStore((s) => s.setCancelingJobId);
@@ -64,6 +66,22 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
   const bayLabel = job.assignedBay
     ? allBays.find((b) => b.id === job.assignedBay)?.label || job.assignedBay
     : null;
+
+  // Dual-task detection for lead mechanic
+  const leadMechanicStatus = job.assignedMechanic ? getMechanicWorkStatus(job.assignedMechanic, jobs) : null;
+  const isLeadDualTask = leadMechanicStatus && leadMechanicStatus.activeJobs.length > 1;
+
+  // Enriched mechanics for quick-assign dropdown
+  const enrichedMechanics = useMemo(() => {
+    return mechanics.map((m) => ({
+      ...m,
+      workStatus: getMechanicWorkStatus(m.name, jobs),
+    })).sort((a, b) => {
+      if (a.workStatus.status === 'available' && b.workStatus.status === 'busy') return -1;
+      if (a.workStatus.status === 'busy' && b.workStatus.status === 'available') return 1;
+      return 0;
+    });
+  }, [mechanics, jobs]);
 
   // Handle forward move with bay assignment interception
   const handleMoveForward = () => {
@@ -270,6 +288,11 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
               ) : (
                 <span className="text-gray-600 dark:text-gray-400">
                   {getMechanicDisplay(job.assignedMechanic, mechanics)}
+                  {isLeadDualTask && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 ml-1" title={`Assigned to ${leadMechanicStatus.activeJobs.length} active jobs`}>
+                      <Layers className="w-2.5 h-2.5" />
+                    </span>
+                  )}
                   {job.assistantMechanic && (
                     <span className="text-gray-400 dark:text-gray-500"> + {getMechanicDisplay(job.assistantMechanic, mechanics)}</span>
                   )}
@@ -398,9 +421,9 @@ export default function JobCard({ job, onDragStart, onDragEnd, isDragging, force
                     className="text-xs px-1.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="">Assign...</option>
-                    {mechanics.map((m) => (
-                      <option key={m.id} value={m.name}>
-                        {getMechanicDisplay(m)}
+                    {enrichedMechanics.map((m) => (
+                      <option key={m.id} value={m.name} disabled={m.workStatus.status === 'busy'}>
+                        {getMechanicDisplay(m)}{m.workStatus.label ? ` (${m.workStatus.label})` : ''}{m.workStatus.status === 'busy' ? ' — Busy' : ''}
                       </option>
                     ))}
                   </select>

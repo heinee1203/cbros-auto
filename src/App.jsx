@@ -14,6 +14,7 @@ import CalendarView from './components/calendar/CalendarView';
 import MechanicLoadTable from './components/reports/MechanicLoadTable';
 import EODReportModal from './components/reports/EODReportModal';
 import AdminPanel from './components/admin/AdminPanel';
+import VehicleHistoryModal from './components/history/VehicleHistoryModal';
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -37,6 +38,7 @@ function MainApp() {
       <CancelIntakeModal />
       <EODReportModal />
       {editingJobId && <JobDetailDrawer />}
+      <VehicleHistoryModal />
     </div>
   );
 }

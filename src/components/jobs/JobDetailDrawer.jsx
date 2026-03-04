@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Trash2, Save, Hash, ClipboardList, Ban } from 'lucide-react';
+import { X, Trash2, Save, Hash, ClipboardList, Ban, History } from 'lucide-react';
 import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
-import { useJobsStore } from '../../stores/jobsStore';
+import { useJobsStore, getMechanicWorkStatus } from '../../stores/jobsStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
 import MechanicBandwidthWarning from './MechanicBandwidthWarning';
@@ -18,6 +18,7 @@ export default function JobDetailDrawer() {
   const deleteJob = useJobsStore((s) => s.deleteJob);
   const togglePartsOrdered = useJobsStore((s) => s.togglePartsOrdered);
   const setCancelingJobId = useUIStore((s) => s.setCancelingJobId);
+  const openVehicleHistory = useUIStore((s) => s.openVehicleHistory);
 
   const job = jobs.find((j) => j.id === editingJobId);
   const [form, setForm] = useState({});
@@ -55,11 +56,32 @@ export default function JobDetailDrawer() {
     }
   }, [job]);
 
+  // Close on Escape key (but not when service modal is open)
+  useEffect(() => {
+    const handleEsc = (e) => {
+      if (e.key === 'Escape' && !serviceModalOpen) setEditingJobId(null);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [serviceModalOpen, setEditingJobId]);
+
+  // Enrich mechanics with work status for dropdown labels + sorting
+  const enrichedMechanics = useMemo(() => {
+    return mechanics.map((m) => ({
+      ...m,
+      workStatus: getMechanicWorkStatus(m.name, jobs),
+    })).sort((a, b) => {
+      if (a.workStatus.status === 'available' && b.workStatus.status === 'busy') return -1;
+      if (a.workStatus.status === 'busy' && b.workStatus.status === 'available') return 1;
+      return 0;
+    });
+  }, [mechanics, jobs]);
+
   // Assistant mechanics: exclude lead from list
   const assistantOptions = useMemo(() => {
     if (!form.assignedMechanic) return [];
-    return mechanics.filter((m) => m.name !== form.assignedMechanic);
-  }, [form.assignedMechanic]);
+    return enrichedMechanics.filter((m) => m.name !== form.assignedMechanic);
+  }, [form.assignedMechanic, enrichedMechanics]);
 
   if (!job) return null;
 
@@ -106,11 +128,11 @@ export default function JobDetailDrawer() {
   const labelCls = 'block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1';
 
   return (
-    <div className="fixed inset-0 z-[100] flex justify-end">
-      <div className="fixed inset-0 bg-black/40" onClick={() => setEditingJobId(null)} />
-      <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-700 overflow-y-auto animate-slide-in">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/50" onClick={() => setEditingJobId(null)} />
+      <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 max-h-[90vh] flex flex-col animate-slide-in">
         {/* Header */}
-        <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 py-4 flex items-center justify-between z-10">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-5 py-4 flex items-center justify-between shrink-0 rounded-t-2xl">
           <div>
             <div className="flex items-center gap-2 mb-0.5">
               {job.queueNumber && (
@@ -135,7 +157,7 @@ export default function JobDetailDrawer() {
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {/* Cancelled banner */}
           {job.isCanceled && (
             <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-700 space-y-2">
@@ -276,8 +298,10 @@ export default function JobDetailDrawer() {
               <label className={labelCls}>Lead Mechanic</label>
               <select value={form.assignedMechanic} onChange={handleLeadChange} className={inputCls}>
                 <option value="">Unassigned</option>
-                {mechanics.map((m) => (
-                  <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
+                {enrichedMechanics.map((m) => (
+                  <option key={m.id} value={m.name} disabled={m.workStatus.status === 'busy'}>
+                    {getMechanicDisplay(m)}{m.workStatus.label ? ` (${m.workStatus.label})` : ''}{m.workStatus.status === 'busy' ? ' — Busy' : ''}
+                  </option>
                 ))}
               </select>
             </div>
@@ -291,7 +315,9 @@ export default function JobDetailDrawer() {
               >
                 <option value="">None</option>
                 {assistantOptions.map((m) => (
-                  <option key={m.id} value={m.name}>{getMechanicDisplay(m)}</option>
+                  <option key={m.id} value={m.name} disabled={m.workStatus.status === 'busy'}>
+                    {getMechanicDisplay(m)}{m.workStatus.label ? ` (${m.workStatus.label})` : ''}{m.workStatus.status === 'busy' ? ' — Busy' : ''}
+                  </option>
                 ))}
               </select>
             </div>
@@ -399,6 +425,15 @@ export default function JobDetailDrawer() {
               >
                 <Ban className="w-4 h-4" />
                 Cancel Intake
+              </button>
+            )}
+            {job.plateNumber && (
+              <button
+                onClick={() => openVehicleHistory(job.plateNumber)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50"
+              >
+                <History className="w-4 h-4" />
+                View History
               </button>
             )}
             <button

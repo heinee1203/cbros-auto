@@ -23,6 +23,8 @@ export const useUIStore = create(
       floorView: 'board', // 'board' or 'list' — Live Floor view mode
       hiddenStatuses: [], // statuses to hide from the floor (e.g. ['DONE'])
       activeJobsMode: false, // preset: hide Done & Cancelled
+      vehicleHistoryOpen: false, // Vehicle Job History modal
+      vehicleHistoryPlate: '', // pre-fill plate when opened from a job
 
       toggleTheme: () =>
         set((state) => {
@@ -48,6 +50,8 @@ export const useUIStore = create(
       setFilterFrontDesk: (v) => set({ filterFrontDesk: v }),
       setFilterMechanic: (v) => set({ filterMechanic: v }),
       setCancelingJobId: (id) => set({ cancelingJobId: id }),
+      openVehicleHistory: (plate) => set({ vehicleHistoryOpen: true, vehicleHistoryPlate: plate || '' }),
+      closeVehicleHistory: () => set({ vehicleHistoryOpen: false, vehicleHistoryPlate: '' }),
       setFloorView: (v) => set({ floorView: v }),
       toggleHiddenStatus: (status) =>
         set((s) => {
