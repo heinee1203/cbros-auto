@@ -126,8 +126,15 @@ export const useJobsStore = create((set, get) => ({
   // ── Job CRUD ────────────────────────────────────────────────────────────
   addJob: async (data) => {
     const now = new Date();
-    // Generate queue number from current Firestore state for consistency
-    const queueNumber = generateQueueNumber(get().jobs);
+    // Generate queue number atomically via Firestore transaction
+    // This guarantees unique numbers even with concurrent intake from multiple tablets
+    let queueNumber;
+    try {
+      queueNumber = await firestoreNextQueueNumber();
+    } catch (err) {
+      console.error('Firestore queue number failed, using local fallback:', err);
+      queueNumber = generateQueueNumber(get().jobs);
+    }
     const job = {
       id: uuidv4(),
       queueNumber,

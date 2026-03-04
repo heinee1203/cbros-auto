@@ -21,6 +21,8 @@ export const useUIStore = create(
       filterMechanic: '',
       cancelingJobId: null, // job ID for the Cancel Intake modal
       floorView: 'board', // 'board' or 'list' — Live Floor view mode
+      hiddenStatuses: [], // statuses to hide from the floor (e.g. ['DONE'])
+      activeJobsMode: false, // preset: hide Done & Cancelled
 
       toggleTheme: () =>
         set((state) => {
@@ -47,10 +49,24 @@ export const useUIStore = create(
       setFilterMechanic: (v) => set({ filterMechanic: v }),
       setCancelingJobId: (id) => set({ cancelingJobId: id }),
       setFloorView: (v) => set({ floorView: v }),
+      toggleHiddenStatus: (status) =>
+        set((s) => {
+          const next = s.hiddenStatuses.includes(status)
+            ? s.hiddenStatuses.filter((st) => st !== status)
+            : [...s.hiddenStatuses, status];
+          // If manual toggle changes, turn off activeJobsMode
+          return { hiddenStatuses: next, activeJobsMode: false };
+        }),
+      setActiveJobsMode: (on) =>
+        set({
+          activeJobsMode: on,
+          hiddenStatuses: on ? ['DONE'] : [],
+        }),
+      clearStatusFilters: () => set({ hiddenStatuses: [], activeJobsMode: false }),
     }),
     {
       name: 'cbros-ui',
-      partialize: (state) => ({ theme: state.theme, activeTab: state.activeTab, floorView: state.floorView }),
+      partialize: (state) => ({ theme: state.theme, activeTab: state.activeTab, floorView: state.floorView, hiddenStatuses: state.hiddenStatuses, activeJobsMode: state.activeJobsMode }),
       onRehydrateStorage: () => (state) => {
         if (state?.theme === 'dark') {
           document.documentElement.classList.add('dark');

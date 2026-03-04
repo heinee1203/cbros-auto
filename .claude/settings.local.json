@@ -13,7 +13,11 @@
       "Bash(curl -s http://localhost:5173/)",
       "Bash(curl -s http://localhost:5173/manifest.json)",
       "Bash(curl -s http://localhost:5173/icons/icon-192x192.svg)",
-      "Bash(curl -s http://localhost:5173/src/main.jsx)"
+      "Bash(curl -s http://localhost:5173/src/main.jsx)",
+      "Bash(npx firebase login --interactive)",
+      "Bash(npx firebase projects:list)",
+      "Bash(npx firebase login --reauth)",
+      "Bash(npm install)"
     ]
   }
 }

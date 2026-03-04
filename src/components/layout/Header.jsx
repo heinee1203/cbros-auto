@@ -1,12 +1,29 @@
-import { Sun, Moon, Plus, Search, Wrench, FileText, UserCircle, Wrench as WrenchIcon } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Sun, Moon, Plus, Search, Wrench, FileText, Lock, LogOut, User } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { useAdminStore, getMechanicDisplay } from '../../stores/adminStore';
+import { useAuthStore } from '../../stores/authStore';
 
 export default function Header() {
   const { theme, toggleTheme, openIntakeModal, openEodModal, searchQuery, setSearchQuery, filterFrontDesk, setFilterFrontDesk, filterMechanic, setFilterMechanic } =
     useUIStore();
   const mechanics = useAdminStore((s) => s.mechanics);
   const frontDesk = useAdminStore((s) => s.frontDesk);
+  const lock = useAuthStore((s) => s.lock);
+  const logout = useAuthStore((s) => s.logout);
+  const userEmail = useAuthStore((s) => s.user?.email);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showUserMenu) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowUserMenu(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showUserMenu]);
 
   return (
     <header className="sticky top-0 z-50 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
@@ -105,6 +122,39 @@ export default function Header() {
           <Plus className="w-4 h-4" />
           New Intake
         </button>
+
+        {/* User menu — lock / sign out */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center gap-1.5 px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm transition-colors"
+            title={userEmail}
+          >
+            <User className="w-4 h-4" />
+          </button>
+
+          {showUserMenu && (
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 animate-slide-in z-50">
+              <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+                <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">{userEmail}</p>
+              </div>
+              <button
+                onClick={() => { lock(); setShowUserMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Lock className="w-4 h-4" />
+                Lock Screen
+              </button>
+              <button
+                onClick={() => { logout(); setShowUserMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Sign Out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

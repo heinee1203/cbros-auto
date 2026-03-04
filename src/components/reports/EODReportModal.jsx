@@ -1,6 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { X, Download, FileText, Car, Wrench, Clock, CheckCircle2, Settings, Package, ClipboardList, BadgeCheck, Printer, Ban, Archive, ShieldCheck, Lock } from 'lucide-react';
-import { format } from 'date-fns';
 import { useUIStore } from '../../stores/uiStore';
 import { useJobsStore, to12Hour } from '../../stores/jobsStore';
 import { JOB_STATUSES, STATUS_LABELS } from '../../data/rosters';
@@ -45,9 +44,26 @@ export default function EODReportModal() {
   const [closeOutError, setCloseOutError] = useState(null);
   const pinInputRef = useRef(null);
 
-  const today = format(new Date(), 'MM/dd/yyyy');
-  const todayISO = format(new Date(), 'yyyy-MM-dd');
-  const nowTime = format(new Date(), 'hh:mm a');
+  // Philippine Standard Time (UTC+8) date calculations
+  const pstNow = new Date();
+  const today = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+  }).format(pstNow);
+  const todayISO = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(pstNow);
+  const nowTime = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(pstNow);
 
   const report = useMemo(() => {
     const allJobs = jobs;
@@ -114,11 +130,14 @@ export default function EODReportModal() {
     // Cancelled jobs
     const canceledJobs = allJobs.filter((j) => j.isCanceled);
 
-    // Completed Jobs — all jobs in DONE column, sorted by intake time (FIFO)
-    // Uses createdAt (ISO string) for reliable chronological sorting
+    // Completed Jobs — ALL jobs in DONE column, sorted by intake time (FIFO)
+    // No filter constraints — includes every completed/cancelled job
     const completedToday = [...done]
-      .filter((j) => j.createdAt) // ensure intakeTime field exists for sort
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      .sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return aTime - bTime;
+      });
 
     return {
       total: allJobs.length,
@@ -144,24 +163,34 @@ export default function EODReportModal() {
 
   const exportCSV = () => {
     const rows = [];
+    // Headers
     rows.push([
-      'Queue #', 'Status', 'Customer', 'Phone', 'Year', 'Make', 'Model',
-      'Plate', 'Odometer', 'VIN', 'Reason for Visit', 'Front Desk Lead', 'Assigned Mechanic',
-      'Appointment Date', 'Preferred Time', 'Est. Man-Hours', 'Est. Completion',
-      'Parts Ordered', 'Date Received', 'Internal Notes',
+      'Intake #', 'Status', 'Customer', 'Phone', 'Year', 'Make', 'Model',
+      'Plate #', 'Odometer', 'VIN', 'Services Rendered', 'Front Desk Lead',
+      'Lead Mechanic', 'Assistant Mechanic', 'Appointment Date', 'Preferred Time',
+      'Est. Man-Hours', 'Actual Hours', 'Est. Completion',
+      'Parts Ordered', 'Date Received', 'Intake Time', 'Service Started', 'Service Completed',
+      'Paid', 'Internal Notes',
     ].join(','));
 
-    jobs.forEach((j) => {
+    // All jobs sorted by intake time — no limit
+    const allReportJobs = [...jobs].sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return aTime - bTime;
+    });
+
+    allReportJobs.forEach((j) => {
+      // Always quote fields for Excel 2019 compatibility
       const escape = (val) => {
-        const str = String(val || '');
-        return str.includes(',') || str.includes('"') || str.includes('\n')
-          ? `"${str.replace(/"/g, '""')}"`
-          : str;
+        const str = String(val ?? '');
+        return `"${str.replace(/"/g, '""')}"`;
       };
-      const rfv = Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join('; ') : j.reasonForVisit;
+      const rfv = Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join('; ') : (j.reasonForVisit || '');
+      const actualHours = computeActualHours(j);
       rows.push([
         escape(j.queueNumber),
-        escape(STATUS_LABELS[j.status] || j.status),
+        escape(j.isCanceled ? 'CANCELLED' : (STATUS_LABELS[j.status] || j.status)),
         escape(j.customerName),
         escape(j.phoneNumber),
         escape(j.year),
@@ -173,17 +202,25 @@ export default function EODReportModal() {
         escape(rfv),
         escape(j.frontDeskLead),
         escape(j.assignedMechanic),
+        escape(j.assistantMechanic),
         escape(j.appointmentDate),
         escape(j.preferredTime ? to12Hour(j.preferredTime) : ''),
-        escape(j.estimatedManHours),
+        escape(j.estimatedManHours || ''),
+        escape(actualHours !== null ? actualHours.toFixed(2) : ''),
         escape(j.estimatedCompletion ? to12Hour(j.estimatedCompletion) : ''),
-        j.partsOrdered ? 'Yes' : 'No',
+        escape(j.partsOrdered ? 'Yes' : 'No'),
         escape(j.dateReceived),
+        escape(j.intakeTimestamp || ''),
+        escape(j.serviceStartedAt || ''),
+        escape(j.serviceDoneTime || ''),
+        escape(j.isPaid ? 'Yes' : 'No'),
         escape(j.internalNotes),
       ].join(','));
     });
 
-    const csv = rows.join('\n');
+    // UTF-8 BOM + CRLF line endings for Excel 2019 compatibility
+    const bom = '\uFEFF';
+    const csv = bom + rows.join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -195,44 +232,91 @@ export default function EODReportModal() {
     URL.revokeObjectURL(url);
   };
 
-  const exportPDF = () => {
-    const statusBadge = (status) => {
-      const colors = {
-        WAITLIST: '#64748b',
-        IN_SERVICE: '#2563eb',
-        AWAITING_PARTS: '#d97706',
-        READY_FOR_PICKUP: '#059669',
-        DONE: '#0d9488',
-      };
-      return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:white;background:${colors[status] || '#6b7280'}">${STATUS_LABELS[status] || status}</span>`;
-    };
+  // Helper: extract just the time portion from timestamp strings
+  const extractTime = (timestamp) => {
+    if (!timestamp) return '-';
+    // "MM/dd/yyyy at HH:mm AM/PM" → "HH:mm AM/PM"
+    const atMatch = timestamp.match(/at\s+(.+)$/);
+    if (atMatch) return atMatch[1];
+    // Already time-only "HH:mm AM/PM"
+    if (/^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(timestamp)) return timestamp;
+    return timestamp;
+  };
 
-    const jobRows = jobs.map((j) => {
-      const rfv = Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join(', ') : (j.reasonForVisit || '');
-      const isOngoing = j.status === JOB_STATUSES.WAITLIST || j.status === JOB_STATUSES.IN_SERVICE || j.status === JOB_STATUSES.AWAITING_PARTS;
-      return `<tr style="border-bottom:1px solid #e5e7eb">
-        <td style="padding:6px 8px;font-family:monospace;font-weight:700;color:#2563eb">${j.queueNumber || '-'}</td>
-        <td style="padding:6px 8px">${statusBadge(j.status)}${isOngoing ? ' <span style="color:#d97706;font-size:10px;font-weight:600">ONGOING</span>' : ''}</td>
-        <td style="padding:6px 8px;font-weight:600">${j.year} ${j.make} ${j.model}</td>
-        <td style="padding:6px 8px">${j.plateNumber || '-'}</td>
-        <td style="padding:6px 8px">${j.customerName}</td>
-        <td style="padding:6px 8px">${j.assignedMechanic ? getMechanicDisplay(j.assignedMechanic, mechanics) : '<span style="color:#ef4444">Unassigned</span>'}</td>
-        <td style="padding:6px 8px">${j.estimatedManHours || '-'}</td>
-        <td style="padding:6px 8px;font-size:11px;color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${rfv || '-'}</td>
+  // Helper: get the service done time with fallback logic (matches JobListView)
+  const getServiceDoneTime = (job) => {
+    if (job.isCanceled && job.canceledAt) return job.canceledAt;
+    if (job.serviceDoneTime) return job.serviceDoneTime;
+    if (job.paidAt) return job.paidAt;
+    if (job.doneAt) return job.doneAt;
+    return null;
+  };
+
+  const exportPDF = () => {
+    // Completed jobs table — columns: Intake #, Vehicle, Services Rendered, Mechanic, Intake Time, Service Start, Service Done, Total
+    const completedJobRows = report.completedToday.map((j) => {
+      const services = Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join(', ') : (j.reasonForVisit || '-');
+      const mechDisplay = j.assignedMechanic ? getMechanicDisplay(j.assignedMechanic, mechanics) : '<span style="color:#ef4444">Unassigned</span>';
+      const actualHours = computeActualHours(j);
+      const totalDisplay = actualHours !== null
+        ? actualHours.toFixed(1) + 'h'
+        : (j.estimatedManHours ? j.estimatedManHours + 'h*' : '-');
+      const cancelledBadge = j.isCanceled ? '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700;background:#fee2e2;color:#991b1b;margin-left:4px">CANCELLED</span>' : '';
+      const intakeTime = j.intakeTimestamp || '-';
+      const serviceStart = j.isCanceled ? '<span style="color:#991b1b">—</span>' : extractTime(j.serviceStartedAt);
+      const serviceDone = j.isCanceled
+        ? `<span style="color:#991b1b">${j.canceledAt || '—'}</span>`
+        : extractTime(getServiceDoneTime(j));
+
+      return `<tr style="border-bottom:1px solid #e5e7eb${j.isCanceled ? ';background:#fef2f2' : ''}">
+        <td style="padding:6px 8px;font-family:'Courier New',monospace;font-weight:700;color:#2563eb;white-space:nowrap;vertical-align:top">${j.queueNumber || '-'}${cancelledBadge}</td>
+        <td style="padding:6px 8px;vertical-align:top">
+          <div style="font-weight:600">${j.year} ${j.make} ${j.model}</div>
+          ${j.plateNumber ? `<div style="font-size:10px;color:#6b7280">${j.plateNumber}</div>` : ''}
+        </td>
+        <td style="padding:6px 8px;font-size:11px;line-height:1.5;word-wrap:break-word;overflow-wrap:break-word;max-width:180px;vertical-align:top">${services}</td>
+        <td style="padding:6px 8px;white-space:nowrap;vertical-align:top">${mechDisplay}${j.assistantMechanic ? `<div style="font-size:10px;color:#6b7280">+ ${getMechanicDisplay(j.assistantMechanic, mechanics)}</div>` : ''}</td>
+        <td style="padding:6px 8px;white-space:nowrap;font-size:10px;color:#374151;vertical-align:top">${intakeTime}</td>
+        <td style="padding:6px 8px;white-space:nowrap;font-size:10px;color:#2563eb;vertical-align:top">${serviceStart}</td>
+        <td style="padding:6px 8px;white-space:nowrap;font-size:10px;color:#0d9488;vertical-align:top">${serviceDone}</td>
+        <td style="padding:6px 8px;text-align:right;font-weight:700;white-space:nowrap;vertical-align:top">${totalDisplay}</td>
       </tr>`;
     }).join('');
 
+    // Ongoing jobs table
+    const ongoingJobRows = report.ongoingJobs.map((j) => {
+      const services = Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join(', ') : (j.reasonForVisit || '-');
+      const mechDisplay = j.assignedMechanic ? getMechanicDisplay(j.assignedMechanic, mechanics) : '<span style="color:#ef4444">Unassigned</span>';
+      const statusLabel = STATUS_LABELS[j.status] || j.status;
+      const intakeTime = j.intakeTimestamp || '-';
+      const serviceStart = extractTime(j.serviceStartedAt);
+
+      return `<tr style="border-bottom:1px solid #e5e7eb;background:#fffbeb">
+        <td style="padding:6px 8px;font-family:'Courier New',monospace;font-weight:700;color:#2563eb;white-space:nowrap;vertical-align:top">${j.queueNumber || '-'}</td>
+        <td style="padding:6px 8px;vertical-align:top">
+          <div style="font-weight:600">${j.year} ${j.make} ${j.model}</div>
+          ${j.plateNumber ? `<div style="font-size:10px;color:#6b7280">${j.plateNumber}</div>` : ''}
+        </td>
+        <td style="padding:6px 8px;font-size:11px;line-height:1.5;word-wrap:break-word;overflow-wrap:break-word;max-width:180px;vertical-align:top">${services}</td>
+        <td style="padding:6px 8px;white-space:nowrap;vertical-align:top">${mechDisplay}</td>
+        <td style="padding:6px 8px;white-space:nowrap;font-size:10px;color:#374151;vertical-align:top">${intakeTime}</td>
+        <td style="padding:6px 8px;white-space:nowrap;font-size:10px;color:#2563eb;vertical-align:top">${serviceStart}</td>
+        <td style="padding:6px 8px;text-align:center;vertical-align:top"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:#92400e;background:#fef3c7">${statusLabel}</span></td>
+      </tr>`;
+    }).join('');
+
+    // Mechanic workload bars
     const mechanicRows = Object.entries(report.mechanicLoads)
       .sort((a, b) => b[1].hours - a[1].hours)
       .map(([mechName, data]) => {
         const color = data.hours >= 8 ? '#ef4444' : data.hours >= 5 ? '#f59e0b' : '#10b981';
         const pct = Math.min((data.hours / 10) * 100, 100);
         return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;margin:4px 0;border-radius:8px;border:1px solid #e5e7eb;background:#f9fafb;font-size:12px">
-          <strong style="min-width:80px;white-space:nowrap">${getMechanicDisplay(mechName, mechanics)}</strong>
+          <strong style="min-width:100px;white-space:nowrap">${getMechanicDisplay(mechName, mechanics)}</strong>
           <div style="flex:1;height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden">
             <div style="height:100%;width:${pct}%;background:${color};border-radius:5px"></div>
           </div>
-          <span style="font-weight:700;color:${color};min-width:70px;text-align:right;font-size:11px">${data.hours.toFixed(1)}h &middot; ${data.jobs} job${data.jobs !== 1 ? 's' : ''}</span>
+          <span style="font-weight:700;color:${color};min-width:80px;text-align:right;font-size:11px">${data.hours.toFixed(1)}h &middot; ${data.jobs} job${data.jobs !== 1 ? 's' : ''}</span>
         </div>`;
       }).join('');
 
@@ -243,80 +327,80 @@ export default function EODReportModal() {
   <style>
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1f2937; margin: 0; padding: 24px; font-size: 12px; }
-    .header { text-align: center; border-bottom: 3px solid #2563eb; padding-bottom: 16px; margin-bottom: 24px; }
-    .header h1 { font-size: 20px; font-weight: 800; color: #1e3a5f; margin: 0; letter-spacing: 2px; text-transform: uppercase; }
+    .header { text-align: center; border-bottom: 3px solid #1e3a5f; padding-bottom: 16px; margin-bottom: 24px; }
+    .header h1 { font-size: 22px; font-weight: 800; color: #1e3a5f; margin: 0; letter-spacing: 2px; text-transform: uppercase; }
     .header p { color: #6b7280; margin: 4px 0 0; font-size: 12px; }
     .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-    .stat-card { flex: 1; min-width: 120px; padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; text-align: center; }
-    .stat-card .value { font-size: 24px; font-weight: 800; }
-    .stat-card .label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
-    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px; margin: 20px 0 12px; }
+    .stat-card { flex: 1; min-width: 100px; padding: 10px; border-radius: 8px; border: 1px solid #e5e7eb; text-align: center; }
+    .stat-card .value { font-size: 22px; font-weight: 800; }
+    .stat-card .label { font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+    .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #374151; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px; margin: 24px 0 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    th { text-align: left; padding: 8px; font-weight: 600; color: #6b7280; border-bottom: 2px solid #d1d5db; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-    td { padding: 6px 8px; vertical-align: top; }
-    .ongoing-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700; background: #fef3c7; color: #92400e; margin-left: 4px; }
+    th { text-align: left; padding: 8px 10px; font-weight: 600; color: #6b7280; border-bottom: 2px solid #d1d5db; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { vertical-align: top; }
     .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+    .note { font-size: 9px; color: #9ca3af; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>CBROS Auto Service Division</h1>
-    <p>End of Day Report &mdash; ${today} at ${nowTime}</p>
+    <p>End of Day Report &mdash; ${today} at ${nowTime} (Philippine Standard Time)</p>
   </div>
 
   <div class="stats">
     <div class="stat-card"><div class="value" style="color:#2563eb">${report.total}</div><div class="label">Total Jobs</div></div>
-    <div class="stat-card"><div class="value" style="color:#64748b">${report.waitlist.length}</div><div class="label">Waitlist</div></div>
-    <div class="stat-card"><div class="value" style="color:#2563eb">${report.inService.length}</div><div class="label">In-Service</div></div>
-    <div class="stat-card"><div class="value" style="color:#d97706">${report.awaitingParts.length}</div><div class="label">Awaiting Parts</div></div>
-    <div class="stat-card"><div class="value" style="color:#059669">${report.readyForPickup.length}</div><div class="label">Ready for Pickup</div></div>
-    <div class="stat-card"><div class="value" style="color:#0d9488">${report.done.length}</div><div class="label">Done</div></div>
-  </div>
-
-  <div class="stats">
-    <div class="stat-card"><div class="value" style="color:#d97706">${report.ongoingJobs.length}</div><div class="label">Ongoing (Carry Over)</div></div>
-    <div class="stat-card"><div class="value" style="color:#2563eb">${report.receivedToday.length}</div><div class="label">Received Today</div></div>
-    <div class="stat-card"><div class="value" style="color:#64748b">${report.totalManHours.toFixed(1)}</div><div class="label">Total Man-Hours</div></div>
-    <div class="stat-card"><div class="value" style="color:#ef4444">${report.unassignedJobs.length}</div><div class="label">Unassigned</div></div>
+    <div class="stat-card"><div class="value" style="color:#0d9488">${report.done.length}</div><div class="label">Completed</div></div>
+    <div class="stat-card"><div class="value" style="color:#d97706">${report.ongoingJobs.length}</div><div class="label">Ongoing</div></div>
+    <div class="stat-card"><div class="value" style="color:#ef4444">${report.canceledJobs.length}</div><div class="label">Cancelled</div></div>
+    <div class="stat-card"><div class="value" style="color:#64748b">${report.totalManHours.toFixed(1)}</div><div class="label">Total Hours</div></div>
   </div>
 
   ${mechanicRows ? `<div class="section-title">Mechanic Workload</div><div style="margin-bottom:16px">${mechanicRows}</div>` : ''}
 
   ${report.completedToday.length > 0 ? `
-  <div class="section-title" style="color:#0d9488;border-bottom-color:#99f6e4">Completed Jobs (${report.completedToday.length}) &mdash; Sorted by Intake Time (FIFO)</div>
-  <table style="margin-bottom:20px">
+  <div class="section-title" style="color:#0d9488;border-bottom-color:#99f6e4">Completed Jobs (${report.completedToday.length})</div>
+  <table style="margin-bottom:16px">
     <thead>
       <tr>
-        <th>Queue #</th><th>Intake Time</th><th>Vehicle</th><th>Plate #</th><th>Service Started</th><th>Time Completed</th>
+        <th style="width:75px">Intake #</th>
+        <th style="width:120px">Vehicle</th>
+        <th>Services Rendered</th>
+        <th style="width:90px">Mechanic</th>
+        <th style="width:70px">Intake Time</th>
+        <th style="width:70px">Svc Start</th>
+        <th style="width:70px">Svc Done</th>
+        <th style="width:50px;text-align:right">Total</th>
       </tr>
     </thead>
-    <tbody>${report.completedToday.map((j) => `<tr style="border-bottom:1px solid #e5e7eb">
-        <td style="padding:6px 8px;font-family:monospace;font-weight:700;color:#2563eb">${j.queueNumber || '-'}</td>
-        <td style="padding:6px 8px;font-weight:600">${j.intakeTimestamp || '-'}</td>
-        <td style="padding:6px 8px;font-weight:600">${j.year} ${j.make} ${j.model}</td>
-        <td style="padding:6px 8px;font-family:monospace">${j.plateNumber || '-'}</td>
-        <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:white;background:#2563eb">${j.serviceStartedAt || '-'}</span></td>
-        <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;color:white;background:#0d9488">${j.serviceDoneTime || j.paidAt || j.doneAt || '-'}</span></td>
-      </tr>`).join('')}</tbody>
+    <tbody>${completedJobRows}</tbody>
+  </table>
+  <p class="note">* Estimated hours (actual not yet recorded)</p>` : '<p style="color:#9ca3af;text-align:center;padding:20px 0">No completed jobs.</p>'}
+
+  ${report.ongoingJobs.length > 0 ? `
+  <div class="section-title" style="color:#d97706;border-bottom-color:#fde68a">Ongoing Jobs &mdash; Carry Over (${report.ongoingJobs.length})</div>
+  <table style="margin-bottom:16px">
+    <thead>
+      <tr>
+        <th style="width:75px">Intake #</th>
+        <th style="width:120px">Vehicle</th>
+        <th>Services Rendered</th>
+        <th style="width:90px">Mechanic</th>
+        <th style="width:70px">Intake Time</th>
+        <th style="width:70px">Svc Start</th>
+        <th style="width:65px;text-align:center">Status</th>
+      </tr>
+    </thead>
+    <tbody>${ongoingJobRows}</tbody>
   </table>` : ''}
 
-  <div class="section-title">All Jobs Summary</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Queue #</th><th>Status</th><th>Vehicle</th><th>Plate</th><th>Customer</th><th>Mechanic</th><th>Hours</th><th>Services</th>
-      </tr>
-    </thead>
-    <tbody>${jobRows}</tbody>
-  </table>
-
   <div class="footer">
-    CBROS Auto Service Division &mdash; End of Day Report &mdash; Generated ${today} at ${nowTime}
+    CBROS Auto Service Division &mdash; End of Day Report &mdash; Generated ${today} at ${nowTime} PST
   </div>
 </body>
 </html>`;
 
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    const printWindow = window.open('', '_blank', 'width=1050,height=700');
     if (printWindow) {
       printWindow.document.write(html);
       printWindow.document.close();

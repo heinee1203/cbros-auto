@@ -1,5 +1,15 @@
 {
   "projects": {
-    "default": "your-firebase-project-id"
-  }
+    "default": "cbros-auto"
+  },
+  "targets": {
+    "cbros-auto": {
+      "hosting": {
+        "cbros-auto": [
+          "cbros-auto"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

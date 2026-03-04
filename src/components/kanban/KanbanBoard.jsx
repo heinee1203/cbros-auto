@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
-import { ClipboardList, Settings, Package, CheckCircle2, GripVertical, MapPin, X, Users, Gauge, ChevronsUp, Car, Wrench, Hash, Minimize2, Maximize2, ChevronsDownUp, ChevronsUpDown, Play, User, BadgeCheck, AlertTriangle, LayoutGrid, List } from 'lucide-react';
+import { ClipboardList, Settings, Package, CheckCircle2, GripVertical, MapPin, X, Users, Gauge, ChevronsUp, Car, Wrench, Hash, Minimize2, Maximize2, ChevronsDownUp, ChevronsUpDown, Play, User, BadgeCheck, AlertTriangle, LayoutGrid, List, Filter, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { useJobsStore, getJobMechanics, isMechanicOnJob } from '../../stores/jobsStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -16,6 +16,14 @@ const COLUMN_CONFIG = [
   { status: JOB_STATUSES.DONE, icon: BadgeCheck, color: 'text-teal-600 dark:text-teal-400', headerBg: 'bg-teal-50 dark:bg-teal-950/40', colBg: 'bg-teal-50/30 dark:bg-teal-950/10', accent: 'border-t-teal-500 dark:border-t-teal-400' },
 ];
 
+const STATUS_FILTER_CONFIG = [
+  { status: JOB_STATUSES.WAITLIST, label: 'Waitlist', activeColor: 'text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60' },
+  { status: JOB_STATUSES.IN_SERVICE, label: 'In-Service', activeColor: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40' },
+  { status: JOB_STATUSES.AWAITING_PARTS, label: 'Parts', activeColor: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40' },
+  { status: JOB_STATUSES.READY_FOR_PICKUP, label: 'Pickup', activeColor: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40' },
+  { status: JOB_STATUSES.DONE, label: 'Done', activeColor: 'text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40' },
+];
+
 export default function KanbanBoard() {
   const jobs = useJobsStore((s) => s.jobs);
   const setJobStatus = useJobsStore((s) => s.setJobStatus);
@@ -30,7 +38,7 @@ export default function KanbanBoard() {
   const clearBay = useJobsStore((s) => s.clearBay);
   const assignMechanic = useJobsStore((s) => s.assignMechanic);
   const assignAssistantMechanic = useJobsStore((s) => s.assignAssistantMechanic);
-  const { searchQuery, filterUnassigned, filterPartsOrdered, filterFrontDesk, filterMechanic, bayMapView, allCardsCollapsed, floorView } = useUIStore();
+  const { searchQuery, filterUnassigned, filterPartsOrdered, filterFrontDesk, filterMechanic, bayMapView, allCardsCollapsed, floorView, hiddenStatuses, activeJobsMode } = useUIStore();
   const toggleBayMapView = useUIStore((s) => s.toggleBayMapView);
   const setAllCardsCollapsed = useUIStore((s) => s.setAllCardsCollapsed);
   const setFloorView = useUIStore((s) => s.setFloorView);
@@ -111,8 +119,16 @@ export default function KanbanBoard() {
     if (filterMechanic) {
       result = result.filter((j) => j.assignedMechanic === filterMechanic || j.assistantMechanic === filterMechanic);
     }
+    // Status visibility filter
+    if (hiddenStatuses.length > 0) {
+      result = result.filter((j) => !hiddenStatuses.includes(j.status));
+    }
+    // Active Jobs mode also hides cancelled jobs in DONE
+    if (activeJobsMode) {
+      result = result.filter((j) => !j.isCanceled);
+    }
     return result;
-  }, [jobs, searchQuery, filterUnassigned, filterPartsOrdered, filterFrontDesk, filterMechanic]);
+  }, [jobs, searchQuery, filterUnassigned, filterPartsOrdered, filterFrontDesk, filterMechanic, hiddenStatuses, activeJobsMode]);
 
   const jobsByStatus = useMemo(() => {
     const grouped = {};
@@ -737,6 +753,49 @@ export default function KanbanBoard() {
           </button>
         </div>
 
+        {/* Status filter chips */}
+        <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
+
+        <button
+          onClick={() => useUIStore.getState().setActiveJobsMode(!activeJobsMode)}
+          className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+            activeJobsMode
+              ? 'bg-amber-500 text-white border-amber-500'
+              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}
+          title="Show only active jobs (hide Done &amp; Cancelled)"
+        >
+          <Zap className="w-3.5 h-3.5" />
+          Active Jobs
+        </button>
+
+        {STATUS_FILTER_CONFIG.map(({ status, label, color, activeColor }) => {
+          const isHidden = hiddenStatuses.includes(status);
+          return (
+            <button
+              key={status}
+              onClick={() => useUIStore.getState().toggleHiddenStatus(status)}
+              className={`px-2.5 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                isHidden
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 border-gray-200 dark:border-gray-700 line-through opacity-60'
+                  : `${activeColor} border-current`
+              }`}
+              title={isHidden ? `Show ${label}` : `Hide ${label}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+
+        {hiddenStatuses.length > 0 && !activeJobsMode && (
+          <button
+            onClick={() => useUIStore.getState().clearStatusFilters()}
+            className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline"
+          >
+            Clear
+          </button>
+        )}
+
         {/* Expand All / Collapse All toggle — only in board view */}
         {floorView === 'board' && (
           <>
@@ -780,62 +839,18 @@ export default function KanbanBoard() {
 
       {/* Board View — Kanban Columns */}
       {floorView === 'board' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-          {COLUMN_CONFIG.map(({ status, icon: Icon, color, headerBg, colBg, accent }) => {
-            const colJobs = jobsByStatus[status] || [];
-            const isDropTarget = dragOverColumn === status && draggedJobId;
-
-            return (
-              <div
-                key={status}
-                className="flex flex-col"
-                onDragOver={(e) => handleDragOver(e, status)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, status)}
-              >
-                <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-lg border-t-2 ${accent} ${headerBg}`}>
-                  <Icon className={`w-4 h-4 ${color}`} />
-                  <h3 className={`text-sm font-bold ${color}`}>
-                    {STATUS_LABELS[status]}
-                  </h3>
-                  <span className="ml-auto text-xs font-semibold text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-900/80 px-2 py-0.5 rounded-full min-w-[24px] text-center">
-                    {colJobs.length}
-                  </span>
-                </div>
-                <div
-                  className={`flex-1 min-h-[200px] rounded-b-lg border border-t-0 border-gray-200 dark:border-gray-700 p-2 space-y-2 overflow-y-auto max-h-[calc(100vh-380px)] transition-colors ${colBg} ${
-                    isDropTarget ? 'kanban-column-drop-active' : ''
-                  }`}
-                >
-                  {colJobs.length === 0 ? (
-                    <div className={`flex flex-col items-center justify-center py-10 ${isDropTarget ? 'opacity-100' : 'opacity-60'}`}>
-                      {isDropTarget ? (
-                        <p className="text-sm text-blue-500 dark:text-blue-400 font-medium">
-                          Drop here
-                        </p>
-                      ) : (
-                        <p className="text-xs text-gray-400 dark:text-gray-500">
-                          No jobs
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    colJobs.map((job) => (
-                      <JobCard
-                        key={job.id}
-                        job={job}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        isDragging={draggedJobId === job.id}
-                        forceCollapsed={allCardsCollapsed}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <BoardColumns
+          hiddenStatuses={hiddenStatuses}
+          jobsByStatus={jobsByStatus}
+          dragOverColumn={dragOverColumn}
+          draggedJobId={draggedJobId}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          handleDragStart={handleDragStart}
+          handleDragEnd={handleDragEnd}
+          allCardsCollapsed={allCardsCollapsed}
+        />
       )}
 
       {/* List View — Dense Data Table */}
@@ -1070,6 +1085,79 @@ export default function KanbanBoard() {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+const GRID_COLS_CLASS = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-1 md:grid-cols-2',
+  3: 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3',
+  4: 'grid-cols-1 md:grid-cols-2 xl:grid-cols-4',
+  5: 'grid-cols-1 md:grid-cols-2 xl:grid-cols-5',
+};
+
+function BoardColumns({ hiddenStatuses, jobsByStatus, dragOverColumn, draggedJobId, handleDragOver, handleDragLeave, handleDrop, handleDragStart, handleDragEnd, allCardsCollapsed }) {
+  const visibleColumns = COLUMN_CONFIG.filter((col) => !hiddenStatuses.includes(col.status));
+  const colCount = visibleColumns.length || 1;
+  const gridClass = GRID_COLS_CLASS[colCount] || GRID_COLS_CLASS[5];
+
+  return (
+    <div className={`grid ${gridClass} gap-4`}>
+      {visibleColumns.map(({ status, icon: Icon, color, headerBg, colBg, accent }) => {
+        const colJobs = jobsByStatus[status] || [];
+        const isDropTarget = dragOverColumn === status && draggedJobId;
+
+        return (
+          <div
+            key={status}
+            className="flex flex-col"
+            onDragOver={(e) => handleDragOver(e, status)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, status)}
+          >
+            <div className={`flex items-center gap-2 px-3 py-2.5 rounded-t-lg border-t-2 ${accent} ${headerBg}`}>
+              <Icon className={`w-4 h-4 ${color}`} />
+              <h3 className={`text-sm font-bold ${color}`}>
+                {STATUS_LABELS[status]}
+              </h3>
+              <span className="ml-auto text-xs font-semibold text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-900/80 px-2 py-0.5 rounded-full min-w-[24px] text-center">
+                {colJobs.length}
+              </span>
+            </div>
+            <div
+              className={`flex-1 min-h-[200px] rounded-b-lg border border-t-0 border-gray-200 dark:border-gray-700 p-2 space-y-2 overflow-y-auto max-h-[calc(100vh-380px)] transition-colors ${colBg} ${
+                isDropTarget ? 'kanban-column-drop-active' : ''
+              }`}
+            >
+              {colJobs.length === 0 ? (
+                <div className={`flex flex-col items-center justify-center py-10 ${isDropTarget ? 'opacity-100' : 'opacity-60'}`}>
+                  {isDropTarget ? (
+                    <p className="text-sm text-blue-500 dark:text-blue-400 font-medium">
+                      Drop here
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                      No jobs
+                    </p>
+                  )}
+                </div>
+              ) : (
+                colJobs.map((job) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                    isDragging={draggedJobId === job.id}
+                    forceCollapsed={allCardsCollapsed}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -25,6 +25,8 @@ export function subscribeToActiveJobs(callback) {
   return onSnapshot(q, (snapshot) => {
     const jobs = [];
     snapshot.forEach((docSnap) => {
+      // Skip internal counter document — it's not a job
+      if (docSnap.id === '_queueCounter') return;
       jobs.push({ ...docSnap.data(), id: docSnap.id });
     });
     callback(jobs);
@@ -63,24 +65,36 @@ export async function firestoreDeleteJob(id) {
 
 /**
  * Generate the next queue number atomically using a Firestore transaction.
- * Reads all active jobs with today's date prefix and returns the next sequence.
+ * Uses a dedicated counter document (activeJobs/_queueCounter) to guarantee
+ * unique sequential numbers even when multiple tablets submit simultaneously.
+ *
+ * Counter doc format: { date: "0303", seq: 5 }
+ * If the date has changed, the sequence resets to 1.
  */
 export async function firestoreNextQueueNumber() {
-  const todayPrefix = format(new Date(), 'MMdd') + '-';
+  const todayPrefix = format(new Date(), 'MMdd');
+  const counterRef = doc(db, ACTIVE_JOBS_COL, '_queueCounter');
 
-  // Read all active jobs to find the max queue number for today
-  const snapshot = await getDocs(collection(db, ACTIVE_JOBS_COL));
-  let maxSeq = 0;
-  snapshot.forEach((docSnap) => {
-    const qn = docSnap.data().queueNumber;
-    if (qn && qn.startsWith(todayPrefix)) {
-      const seq = parseInt(qn.slice(todayPrefix.length), 10);
-      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+  const queueNumber = await runTransaction(db, async (transaction) => {
+    const counterSnap = await transaction.get(counterRef);
+
+    let nextSeq = 1;
+    if (counterSnap.exists()) {
+      const data = counterSnap.data();
+      if (data.date === todayPrefix) {
+        // Same day — increment
+        nextSeq = (data.seq || 0) + 1;
+      }
+      // Different day — reset to 1 (nextSeq already 1)
     }
+
+    // Write the updated counter atomically
+    transaction.set(counterRef, { date: todayPrefix, seq: nextSeq });
+
+    return todayPrefix + '-' + String(nextSeq).padStart(2, '0');
   });
 
-  // Also check the eodReports for today in case jobs were archived already
-  return todayPrefix + String(maxSeq + 1).padStart(2, '0');
+  return queueNumber;
 }
 
 /**
