@@ -17,7 +17,14 @@
       "Bash(npx firebase login --interactive)",
       "Bash(npx firebase projects:list)",
       "Bash(npx firebase login --reauth)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(git push origin main)",
+      "Bash(npx firebase deploy)",
+      "Bash(git add src/App.jsx src/components/history/ src/components/jobs/IntakeModal.jsx src/components/jobs/JobCard.jsx src/components/jobs/JobDetailDrawer.jsx src/components/jobs/QuickViewModal.jsx src/components/kanban/JobListView.jsx src/components/kanban/KanbanBoard.jsx src/components/layout/Header.jsx src/components/reports/EODReportModal.jsx src/components/reports/MechanicLoadTable.jsx src/stores/jobsStore.js src/stores/uiStore.js)",
+      "Bash(git add dist/ .firebase/hosting.ZGlzdA.cache)",
+      "Bash(git commit:*)",
+      "Bash(npx firebase deploy --only hosting)",
+      "Bash(git push)"
     ]
   }
 }
