@@ -25,9 +25,12 @@ export function subscribeToActiveJobs(callback) {
   return onSnapshot(q, (snapshot) => {
     const jobs = [];
     snapshot.forEach((docSnap) => {
-      // Skip internal counter documents — they're not jobs
-      if (docSnap.id === '_queueCounter' || docSnap.id.startsWith('_qc_')) return;
-      jobs.push({ ...docSnap.data(), id: docSnap.id });
+      // Skip internal counter/meta documents — they're not jobs
+      if (docSnap.id === '_queueCounter' || docSnap.id.startsWith('_qc_') || docSnap.id === '_closedDates') return;
+      const data = docSnap.data();
+      // Safety: skip any doc that doesn't look like a valid job
+      if (!data.customerName && !data.dateReceived && !data.status) return;
+      jobs.push({ ...data, id: docSnap.id });
     });
     callback(jobs);
   }, (error) => {

@@ -22,8 +22,6 @@ import {
   Wrench,
   CheckCircle2,
   ClipboardList,
-  Package,
-  UserX,
   CalendarDays,
   Trophy,
   Filter,
@@ -126,28 +124,22 @@ export default function MechanicLoadTable() {
     return presets;
   }, []);
 
-  // Mechanic load data for the week view (heatmap)
-  // Includes completed jobs (Done/Ready for Pickup) with actual hours calculated
+  // Mechanic load data for the week view — COMPLETED WORK ONLY
+  // Only includes Done / Done+Paid jobs, mapped by serviceDoneTime date
   const loadData = useMemo(() => {
     return mechanics.map((mech) => {
       const dailyLoads = days.map((day) => {
         const dateStr = format(day, 'MM/dd/yyyy');
         const mechJobs = jobs.filter((j) => {
-          if (j.isCanceled) return false;
+          if (!isJobCompleted(j)) return false;
           if (!isMechanicOnJob(j, mech.name)) return false;
-          // Match by appointment date, received date, or service activity date
-          if (j.appointmentDate === dateStr) return true;
-          if (!j.appointmentDate && j.dateReceived === dateStr) return true;
-          // Also include completed jobs whose service was done on this date
-          if (isJobCompleted(j) && extractDateFromTimestamp(j.serviceDoneTime) === dateStr) return true;
-          if (extractDateFromTimestamp(j.serviceStartedAt) === dateStr) return true;
-          return false;
+          // Map by the date the service was completed
+          const doneDate = extractDateFromTimestamp(j.serviceDoneTime);
+          return doneDate === dateStr;
         });
-        // De-duplicate (a job might match on multiple criteria)
-        const unique = [...new Map(mechJobs.map((j) => [j.id, j])).values()];
-        const total = unique.reduce((s, j) => s + getJobHours(j), 0);
+        const total = mechJobs.reduce((s, j) => s + getJobHours(j), 0);
         const totalRounded = Math.round(total * 10) / 10;
-        return { dateStr, total: totalRounded, count: unique.length, jobs: unique };
+        return { dateStr, total: totalRounded, count: mechJobs.length, jobs: mechJobs };
       });
       const weekTotal = Math.round(dailyLoads.reduce((s, d) => s + d.total, 0) * 10) / 10;
       const weekJobs = dailyLoads.reduce((s, d) => s + d.count, 0);
@@ -177,24 +169,24 @@ export default function MechanicLoadTable() {
   const [tooltip, setTooltip] = useState(null);
   const [selectedCell, setSelectedCell] = useState(null);
 
-  // Job Finished count (Ready for Pickup + isPaid)
+  // Job Finished count — all completed jobs (Done / Done+Paid)
   const jobFinishedCount = useMemo(() => {
+    const completedJobs = jobs.filter(isJobCompleted);
     // If date range filter is active, scope to that range
     if (dateRange.start && dateRange.end) {
-      return jobs.filter((j) => {
-        if (j.status !== JOB_STATUSES.READY_FOR_PICKUP || !j.isPaid) return false;
-        if (!j.appointmentDate) return false;
-        // Parse MM/dd/yyyy
-        const [m, d, y] = j.appointmentDate.split('/');
+      return completedJobs.filter((j) => {
+        const doneDate = extractDateFromTimestamp(j.serviceDoneTime);
+        if (!doneDate) return false;
+        const [m, d, y] = doneDate.split('/');
         const jobDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
         return isWithinInterval(jobDate, { start: dateRange.start, end: dateRange.end });
       }).length;
     }
     // If no filter, scope to current week
-    return jobs.filter((j) => {
-      if (j.status !== JOB_STATUSES.READY_FOR_PICKUP || !j.isPaid) return false;
-      if (!j.appointmentDate) return false;
-      const [m, d, y] = j.appointmentDate.split('/');
+    return completedJobs.filter((j) => {
+      const doneDate = extractDateFromTimestamp(j.serviceDoneTime);
+      if (!doneDate) return false;
+      const [m, d, y] = doneDate.split('/');
       const jobDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
       return isWithinInterval(jobDate, { start: weekStart, end: weekEnd });
     }).length;
@@ -202,29 +194,35 @@ export default function MechanicLoadTable() {
 
   // Total Job Finished (all time, unfiltered)
   const jobFinishedAllTime = useMemo(() => {
-    return jobs.filter(
-      (j) => j.status === JOB_STATUSES.READY_FOR_PICKUP && j.isPaid
-    ).length;
+    return jobs.filter(isJobCompleted).length;
   }, [jobs]);
 
-  // Filtered stats based on date range or week
+  // Filtered stats based on date range or week — completed work focused
   const filteredStats = useMemo(() => {
-    const inRange = (j) => {
-      if (!j.appointmentDate) return false;
-      const [m, d, y] = j.appointmentDate.split('/');
+    const completedJobs = jobs.filter(isJobCompleted);
+    const totalActualHours = completedJobs.reduce((s, j) => {
+      const actual = calcActualHours(j);
+      return s + (actual || 0);
+    }, 0);
+
+    // Completed in current scope (range or week)
+    const inScope = completedJobs.filter((j) => {
+      const doneDate = extractDateFromTimestamp(j.serviceDoneTime);
+      if (!doneDate) return false;
+      const [m, d, y] = doneDate.split('/');
       const jobDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
       if (dateRange.start && dateRange.end) {
         return isWithinInterval(jobDate, { start: dateRange.start, end: dateRange.end });
       }
       return isWithinInterval(jobDate, { start: weekStart, end: weekEnd });
-    };
+    });
+    const scopeHours = Math.round(inScope.reduce((s, j) => s + (calcActualHours(j) || 0), 0) * 10) / 10;
 
-    const rangeJobs = jobs.filter(inRange);
     return {
-      totalActive: jobs.filter((j) => j.status !== JOB_STATUSES.READY_FOR_PICKUP).length,
-      awaitingParts: jobs.filter((j) => j.partsOrdered).length,
-      unassigned: jobs.filter((j) => !j.assignedMechanic && !j.isCanceled).length,
-      scheduledInRange: rangeJobs.length,
+      totalCompleted: completedJobs.length,
+      totalActualHours: Math.round(totalActualHours * 10) / 10,
+      scopeCompleted: inScope.length,
+      scopeHours,
     };
   }, [jobs, weekStart, weekEnd, dateRange]);
 
@@ -237,12 +235,14 @@ export default function MechanicLoadTable() {
     return eachDayOfInterval({ start: calStart, end: calEnd });
   }, [calendarMonth]);
 
-  // Job count per day for calendar
+  // Completed job count per day for calendar (based on serviceDoneTime date)
   const jobCountsByDay = useMemo(() => {
     const counts = {};
     jobs.forEach((j) => {
-      if (j.appointmentDate) {
-        counts[j.appointmentDate] = (counts[j.appointmentDate] || 0) + 1;
+      if (!isJobCompleted(j)) return;
+      const doneDate = extractDateFromTimestamp(j.serviceDoneTime);
+      if (doneDate) {
+        counts[doneDate] = (counts[doneDate] || 0) + 1;
       }
     });
     return counts;
@@ -313,23 +313,23 @@ export default function MechanicLoadTable() {
 
         <StatCard
           icon={ClipboardList}
-          label="Total Active Jobs"
-          value={filteredStats.totalActive}
+          label="Total Completed"
+          value={filteredStats.totalCompleted}
         />
         <StatCard
-          icon={Package}
-          label="Awaiting Parts"
-          value={filteredStats.awaitingParts}
-        />
-        <StatCard
-          icon={UserX}
-          label="Unassigned Jobs"
-          value={filteredStats.unassigned}
+          icon={Clock}
+          label="Total Actual Hours"
+          value={`${filteredStats.totalActualHours}h`}
         />
         <StatCard
           icon={CalendarDays}
-          label={dateRangeLabel ? 'In Range' : 'This Week Scheduled'}
-          value={filteredStats.scheduledInRange}
+          label={dateRangeLabel ? 'In Range' : 'This Week'}
+          value={filteredStats.scopeCompleted}
+        />
+        <StatCard
+          icon={Wrench}
+          label={dateRangeLabel ? 'Range Hours' : 'Week Hours'}
+          value={`${filteredStats.scopeHours}h`}
         />
       </div>
 
@@ -475,8 +475,8 @@ export default function MechanicLoadTable() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Wrench className="w-5 h-5" />
-            Mechanic Daily Load
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            Completed Work Tracker
           </h3>
           <div className="flex items-center gap-2">
             <button
@@ -575,7 +575,7 @@ export default function MechanicLoadTable() {
                           {load.count > 0 ? (
                             <>
                               <span className={`text-xs font-bold ${cellText}`}>
-                                {load.count} / {load.total}h
+                                {load.count} / {load.total > 0 ? `${load.total}h` : '--h'}
                               </span>
                               {load.total > 8 && (
                                 <AlertTriangle className={`w-3 h-3 inline ml-1 -mt-0.5 ${cellText}`} />
@@ -632,7 +632,7 @@ export default function MechanicLoadTable() {
                       <div className={`rounded-lg px-2 py-2 text-center ${cellBg}`}>
                         {dt.count > 0 ? (
                           <span className={`text-xs font-bold ${cellText}`}>
-                            {dt.count} / {dt.total}h
+                            {dt.count} / {dt.total > 0 ? `${dt.total}h` : '--h'}
                           </span>
                         ) : (
                           <span className={`text-xs ${cellText}`}>—</span>
@@ -663,155 +663,105 @@ export default function MechanicLoadTable() {
         </div>
       </div>
 
-      {/* Hover Tooltip */}
-      {tooltip && (() => {
-        const completed = tooltip.jobs.filter(isJobCompleted);
-        const pending = tooltip.jobs.filter((j) => !isJobCompleted(j));
-        return (
-          <div
-            className="fixed z-[200] pointer-events-none bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 max-w-xs"
-            style={{
-              left: Math.min(tooltip.rect.left, window.innerWidth - 320),
-              top: tooltip.rect.bottom + 8,
-            }}
-          >
-            <p className="text-xs font-bold text-gray-900 dark:text-white mb-1.5">
-              {tooltip.mechName} — {tooltip.dateStr}
-            </p>
-            {completed.length > 0 && (
-              <>
-                <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mb-1 mt-1">
-                  <CheckCircle2 className="w-3 h-3" /> Completed ({completed.length})
-                </p>
-                <div className="space-y-1 mb-1.5">
-                  {completed.slice(0, 3).map((j) => (
-                    <div key={j.id} className="text-[11px] leading-tight pl-1 border-l-2 border-emerald-300 dark:border-emerald-700">
-                      <p className="font-medium text-gray-800 dark:text-gray-200">
-                        {j.year} {j.make} {j.model}
-                      </p>
-                      <p className="text-gray-400 dark:text-gray-500">
-                        {getJobHours(j)}h {calcActualHours(j) !== null ? 'actual' : 'est.'}
-                      </p>
-                    </div>
-                  ))}
-                  {completed.length > 3 && (
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-1">
-                      +{completed.length - 3} more...
-                    </p>
-                  )}
+      {/* Hover Tooltip — completed jobs only */}
+      {tooltip && (
+        <div
+          className="fixed z-[200] pointer-events-none bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 max-w-xs"
+          style={{
+            left: Math.min(tooltip.rect.left, window.innerWidth - 320),
+            top: tooltip.rect.bottom + 8,
+          }}
+        >
+          <p className="text-xs font-bold text-gray-900 dark:text-white mb-1.5">
+            {tooltip.mechName} — {tooltip.dateStr}
+          </p>
+          <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 mb-1">
+            <CheckCircle2 className="w-3 h-3" /> Completed ({tooltip.jobs.length})
+          </p>
+          <div className="space-y-1">
+            {tooltip.jobs.slice(0, 4).map((j) => {
+              const actual = calcActualHours(j);
+              return (
+                <div key={j.id} className="text-[11px] leading-tight pl-1 border-l-2 border-emerald-300 dark:border-emerald-700">
+                  <p className="font-medium text-gray-800 dark:text-gray-200">
+                    {j.year} {j.make} {j.model}
+                  </p>
+                  <p className="text-gray-400 dark:text-gray-500">
+                    {actual !== null ? `${actual}h actual` : '--h'}
+                  </p>
                 </div>
-              </>
-            )}
-            {pending.length > 0 && (
-              <>
-                <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1 mb-1 mt-1">
-                  <Clock className="w-3 h-3" /> Pending ({pending.length})
-                </p>
-                <div className="space-y-1">
-                  {pending.slice(0, 3).map((j) => (
-                    <div key={j.id} className="text-[11px] leading-tight pl-1 border-l-2 border-blue-300 dark:border-blue-700">
-                      <p className="font-medium text-gray-800 dark:text-gray-200">
-                        {j.year} {j.make} {j.model}
-                      </p>
-                      <p className="text-gray-400 dark:text-gray-500">
-                        {j.estimatedManHours || 0}h est.
-                      </p>
-                    </div>
-                  ))}
-                  {pending.length > 3 && (
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-1">
-                      +{pending.length - 3} more...
-                    </p>
-                  )}
-                </div>
-              </>
+              );
+            })}
+            {tooltip.jobs.length > 4 && (
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-1">
+                +{tooltip.jobs.length - 4} more...
+              </p>
             )}
           </div>
-        );
-      })()}
+        </div>
+      )}
 
-      {/* Selected Cell Detail */}
-      {selectedCell && (() => {
-        const completed = selectedCell.jobs.filter(isJobCompleted);
-        const pending = selectedCell.jobs.filter((j) => !isJobCompleted(j));
-        const JobDetailTable = ({ jobList, label, icon: Icon, accentColor }) => (
-          jobList.length > 0 && (
-            <div>
-              <div className={`px-4 py-2 flex items-center gap-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30`}>
-                <Icon className={`w-3.5 h-3.5 ${accentColor}`} />
-                <span className={`text-[11px] font-semibold uppercase tracking-wide ${accentColor}`}>
-                  {label} ({jobList.length})
-                </span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
-                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">CS #</th>
-                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Vehicle</th>
-                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Services</th>
-                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Hours</th>
-                      <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {jobList.map((j) => {
-                      const actual = calcActualHours(j);
-                      const hours = getJobHours(j);
-                      const isDone = isJobCompleted(j);
-                      return (
-                        <tr key={j.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                          <td className="py-2 px-3 font-mono font-bold text-blue-600 dark:text-blue-400">
-                            {j.queueNumber || '—'}
-                          </td>
-                          <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                            {j.year} {j.make} {j.model}
-                          </td>
-                          <td className="py-2 px-3 text-gray-600 dark:text-gray-400 max-w-[200px] truncate">
-                            {Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join(', ') : j.reasonForVisit || '—'}
-                          </td>
-                          <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                            {hours}h
-                            {isDone && actual !== null ? (
-                              <span className="text-[9px] text-emerald-600 dark:text-emerald-400 ml-1">actual</span>
-                            ) : (
-                              <span className="text-[9px] text-gray-400 dark:text-gray-500 ml-1">est.</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3">
-                            <StatusBadge status={j.status} isPaid={j.isPaid} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        );
-        return (
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                {selectedCell.mechName} — {selectedCell.dateStr}
-                <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                  ({selectedCell.jobs.length} job{selectedCell.jobs.length !== 1 ? 's' : ''})
-                </span>
-              </h4>
-              <button
-                onClick={() => setSelectedCell(null)}
-                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-              </button>
-            </div>
-            <JobDetailTable jobList={completed} label="Completed" icon={CheckCircle2} accentColor="text-emerald-600 dark:text-emerald-400" />
-            <JobDetailTable jobList={pending} label="Pending" icon={Clock} accentColor="text-blue-600 dark:text-blue-400" />
+      {/* Selected Cell Detail — completed jobs only */}
+      {selectedCell && (
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              {selectedCell.mechName} — {selectedCell.dateStr}
+              <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
+                ({selectedCell.jobs.length} completed job{selectedCell.jobs.length !== 1 ? 's' : ''})
+              </span>
+            </h4>
+            <button
+              onClick={() => setSelectedCell(null)}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            </button>
           </div>
-        );
-      })()}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">CS #</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Vehicle</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Customer</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Services</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Actual Hours</th>
+                  <th className="text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedCell.jobs.map((j) => {
+                  const actual = calcActualHours(j);
+                  return (
+                    <tr key={j.id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                      <td className="py-2 px-3 font-mono font-bold text-blue-600 dark:text-blue-400">
+                        {j.queueNumber || '—'}
+                      </td>
+                      <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                        {j.year} {j.make} {j.model}
+                      </td>
+                      <td className="py-2 px-3 text-gray-600 dark:text-gray-400">
+                        {j.customerName || '—'}
+                      </td>
+                      <td className="py-2 px-3 text-gray-600 dark:text-gray-400 max-w-[200px] truncate">
+                        {Array.isArray(j.reasonForVisit) ? j.reasonForVisit.join(', ') : j.reasonForVisit || '—'}
+                      </td>
+                      <td className="py-2 px-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                        {actual !== null ? `${actual}h` : '--h'}
+                      </td>
+                      <td className="py-2 px-3">
+                        <StatusBadge status={j.status} isPaid={j.isPaid} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Filtered Jobs Table (when date range is active) */}
       {dateRange.start && dateRange.end && (
