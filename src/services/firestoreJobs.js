@@ -25,8 +25,8 @@ export function subscribeToActiveJobs(callback) {
   return onSnapshot(q, (snapshot) => {
     const jobs = [];
     snapshot.forEach((docSnap) => {
-      // Skip internal counter document — it's not a job
-      if (docSnap.id === '_queueCounter') return;
+      // Skip internal counter documents — they're not jobs
+      if (docSnap.id === '_queueCounter' || docSnap.id.startsWith('_qc_')) return;
       jobs.push({ ...docSnap.data(), id: docSnap.id });
     });
     callback(jobs);
@@ -64,34 +64,73 @@ export async function firestoreDeleteJob(id) {
 }
 
 /**
- * Generate the next queue number atomically using a Firestore transaction.
- * Uses a dedicated counter document (activeJobs/_queueCounter) to guarantee
- * unique sequential numbers even when multiple tablets submit simultaneously.
- *
- * Counter doc format: { date: "0303", seq: 5 }
- * If the date has changed, the sequence resets to 1.
+ * Get today's date prefix in MMDD format using Philippine Standard Time (UTC+8).
  */
-export async function firestoreNextQueueNumber() {
-  const todayPrefix = format(new Date(), 'MMdd');
-  const counterRef = doc(db, ACTIVE_JOBS_COL, '_queueCounter');
+export function getPSTDatePrefix() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const mm = parts.find((p) => p.type === 'month').value;
+  const dd = parts.find((p) => p.type === 'day').value;
+  return mm + dd;
+}
+
+/**
+ * Convert an appointmentDate string ("MM/dd/yyyy") to a MMDD prefix.
+ * Returns null if input is missing or invalid.
+ */
+function appointmentToPrefix(appointmentDate) {
+  if (!appointmentDate) return null;
+  const m = appointmentDate.match(/^(\d{2})\/(\d{2})\/\d{4}$/);
+  return m ? m[1] + m[2] : null;
+}
+
+/**
+ * Generate the next queue number atomically using a Firestore transaction.
+ *
+ * @param {string|null} appointmentDate - "MM/dd/yyyy" format or null for walk-ins.
+ *   If a future appointment date is provided, the prefix uses that date (e.g., "0310").
+ *   Otherwise the current PST date is used (e.g., "0305").
+ *
+ * Uses per-date counter documents (activeJobs/_qc_MMDD) for concurrency safety.
+ * Cross-checks existing jobs to avoid duplicates if counter is out of sync.
+ */
+export async function firestoreNextQueueNumber(appointmentDate) {
+  const datePrefix = appointmentToPrefix(appointmentDate) || getPSTDatePrefix();
+  const counterRef = doc(db, ACTIVE_JOBS_COL, `_qc_${datePrefix}`);
 
   const queueNumber = await runTransaction(db, async (transaction) => {
     const counterSnap = await transaction.get(counterRef);
 
+    // Scan existing jobs to find the highest sequence for this date prefix
+    const jobsSnap = await getDocs(query(collection(db, ACTIVE_JOBS_COL)));
+    let maxExisting = 0;
+    const prefix = datePrefix + '-';
+    jobsSnap.forEach((docSnap) => {
+      if (docSnap.id.startsWith('_qc_') || docSnap.id === '_queueCounter') return;
+      const qn = docSnap.data().queueNumber;
+      if (qn && qn.startsWith(prefix)) {
+        const seq = parseInt(qn.slice(prefix.length), 10);
+        if (!isNaN(seq) && seq > maxExisting) maxExisting = seq;
+      }
+    });
+
     let nextSeq = 1;
     if (counterSnap.exists()) {
-      const data = counterSnap.data();
-      if (data.date === todayPrefix) {
-        // Same day — increment
-        nextSeq = (data.seq || 0) + 1;
-      }
-      // Different day — reset to 1 (nextSeq already 1)
+      nextSeq = (counterSnap.data().seq || 0) + 1;
+    }
+
+    // Use whichever is higher: counter or actual max from existing jobs
+    if (maxExisting >= nextSeq) {
+      nextSeq = maxExisting + 1;
     }
 
     // Write the updated counter atomically
-    transaction.set(counterRef, { date: todayPrefix, seq: nextSeq });
+    transaction.set(counterRef, { seq: nextSeq });
 
-    return todayPrefix + '-' + String(nextSeq).padStart(2, '0');
+    return prefix + String(nextSeq).padStart(2, '0');
   });
 
   return queueNumber;

@@ -9,6 +9,7 @@ import {
   firestoreDeleteJob,
   firestoreNextQueueNumber,
   firestoreBatchArchive,
+  getPSTDatePrefix,
 } from '../services/firestoreJobs';
 
 const formatDate = (d) => format(d, 'MM/dd/yyyy');
@@ -43,10 +44,17 @@ export const to12Hour = (time24) => {
 
 /**
  * Generate a daily-reset queue number in format MMDD-NN (local fallback).
+ * Uses appointmentDate prefix for future jobs, PST today for walk-ins.
+ * @param {Array} existingJobs - current jobs in store
+ * @param {string|null} appointmentDate - "MM/dd/yyyy" or null
  */
-const generateQueueNumber = (existingJobs) => {
-  const today = format(new Date(), 'MMdd');
-  const prefix = today + '-';
+const generateQueueNumber = (existingJobs, appointmentDate = null) => {
+  let datePrefix = getPSTDatePrefix();
+  if (appointmentDate) {
+    const m = appointmentDate.match(/^(\d{2})\/(\d{2})\/\d{4}$/);
+    if (m) datePrefix = m[1] + m[2];
+  }
+  const prefix = datePrefix + '-';
   let maxSeq = 0;
   existingJobs.forEach((j) => {
     if (j.queueNumber && j.queueNumber.startsWith(prefix)) {
@@ -155,13 +163,13 @@ export const useJobsStore = create((set, get) => ({
   addJob: async (data) => {
     const now = new Date();
     // Generate queue number atomically via Firestore transaction
-    // This guarantees unique numbers even with concurrent intake from multiple tablets
+    // Uses appointmentDate prefix for future-dated jobs, today's date for walk-ins
     let queueNumber;
     try {
-      queueNumber = await firestoreNextQueueNumber();
+      queueNumber = await firestoreNextQueueNumber(data.appointmentDate || null);
     } catch (err) {
       console.error('Firestore queue number failed, using local fallback:', err);
-      queueNumber = generateQueueNumber(get().jobs);
+      queueNumber = generateQueueNumber(get().jobs, data.appointmentDate || null);
     }
     const job = {
       id: uuidv4(),
