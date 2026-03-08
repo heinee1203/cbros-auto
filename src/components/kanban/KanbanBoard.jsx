@@ -199,7 +199,8 @@ export default function KanbanBoard() {
 
   // --- Live Floor Metrics ---
   const metrics = useMemo(() => {
-    const waitlistCount = jobs.filter((j) => j.status === JOB_STATUSES.WAITLIST).length;
+    const todayDate = format(new Date(), 'MM/dd/yyyy');
+    const waitlistCount = jobs.filter((j) => j.status === JOB_STATUSES.WAITLIST && j.dateReceived === todayDate).length;
     const activeServiceCount = jobs.filter((j) => j.status === JOB_STATUSES.IN_SERVICE).length;
 
     // Only IN_SERVICE mechanics are truly "busy" — AWAITING_PARTS mechanics are available
