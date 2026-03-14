@@ -20,7 +20,7 @@ const ACTIVE_JOBS_COL = 'activeJobs';
  * Subscribe to real-time updates on all active jobs.
  * Returns an unsubscribe function.
  */
-export function subscribeToActiveJobs(callback) {
+export function subscribeToActiveJobs(callback, onError) {
   const q = query(collection(db, ACTIVE_JOBS_COL));
   return onSnapshot(q, (snapshot) => {
     const jobs = [];
@@ -35,6 +35,7 @@ export function subscribeToActiveJobs(callback) {
     callback(jobs);
   }, (error) => {
     console.error('Firestore activeJobs listener error:', error);
+    if (onError) onError(error);
   });
 }
 
