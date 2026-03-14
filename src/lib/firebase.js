@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -13,12 +13,31 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with offline persistence (multi-tab support)
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-  }),
-});
+// Queue display runs on LG WebOS TV which lacks IndexedDB support for
+// persistent cache. Use memory-only cache for that route, persistent for
+// the main app.
+var db;
+var isQueueDisplay = window.location.pathname === '/queue-display';
+
+if (isQueueDisplay) {
+  db = initializeFirestore(app, {
+    localCache: memoryLocalCache(),
+  });
+} else {
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (e) {
+    // Fallback if persistence is not supported (e.g. private browsing)
+    console.warn('Persistent cache unavailable, falling back to memory:', e);
+    db = initializeFirestore(app, {
+      localCache: memoryLocalCache(),
+    });
+  }
+}
 
 const auth = getAuth(app);
 
