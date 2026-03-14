@@ -11,7 +11,9 @@ const bayLabelMap = Object.fromEntries(ALL_BAYS.map((b) => [b.id, b.label]));
 
 function getBayLabel(bayId) {
   if (!bayId) return null;
-  return bayLabelMap[bayId] || bayId;
+  const internal = bayLabelMap[bayId] || bayId;
+  const num = internal.match(/\d+/);
+  return num ? `Bay ${num[0]}` : internal;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,46 +112,17 @@ function AutoScrollPanel({ children, className = '' }) {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge
-// ---------------------------------------------------------------------------
-
-function StatusBadge({ status, bayId }) {
-  const isAwaiting = status === 'AWAITING_PARTS';
-  const label = isAwaiting ? 'Awaiting Parts' : 'In Service';
-  const colors = isAwaiting
-    ? 'bg-amber-100 text-amber-800 border-amber-300'
-    : 'bg-blue-100 text-blue-800 border-blue-300';
-  const bay = getBayLabel(bayId);
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span
-        className={`inline-flex items-center px-3 py-1 rounded-full border font-semibold ${colors}`}
-        style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
-      >
-        {label}
-      </span>
-      {bay && (
-        <span
-          className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-300 font-medium"
-          style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
-        >
-          {bay}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Now Serving Card
 // ---------------------------------------------------------------------------
 
 function NowServingCard({ job }) {
+  const isAwaiting = job.status === 'AWAITING_PARTS';
+  const bay = getBayLabel(job.assignedBay);
+
   return (
-    <div className="bg-white rounded-xl shadow-md border border-emerald-200 p-5 flex items-center gap-5">
+    <div className="bg-emerald-50/60 rounded-xl shadow-md border border-emerald-200 border-l-5 border-l-emerald-500 py-6 px-5 flex items-center gap-5">
       <div
-        className="bg-emerald-600 text-white font-bold rounded-lg px-4 py-3 text-center min-w-[100px] shrink-0"
+        className="bg-emerald-600 text-white font-bold rounded-lg px-3 py-3 text-center shrink-0"
         style={{ fontSize: 'clamp(2.5rem, 4vw, 4rem)', lineHeight: 1.1 }}
       >
         {job.queueNumber}
@@ -161,7 +134,24 @@ function NowServingCard({ job }) {
         >
           {[job.year, job.make, job.model].filter(Boolean).join(' ')}
         </div>
-        <StatusBadge status={job.status} bayId={job.assignedBay} />
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAwaiting && (
+            <span
+              className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold"
+              style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
+            >
+              Awaiting Parts
+            </span>
+          )}
+          {bay && (
+            <span
+              className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium"
+              style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
+            >
+              {bay}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -173,23 +163,23 @@ function NowServingCard({ job }) {
 
 function InQueueCard({ job, position, total }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-4 flex items-center gap-4">
+    <div className="bg-white rounded-xl border border-gray-200 py-3 px-4 flex items-center gap-4">
       <div
-        className="bg-blue-600 text-white font-bold rounded-lg px-3 py-2 text-center min-w-[90px] shrink-0"
-        style={{ fontSize: 'clamp(2rem, 3.5vw, 3.5rem)', lineHeight: 1.1 }}
+        className="bg-blue-600 text-white font-bold rounded-lg px-2.5 py-1.5 text-center shrink-0"
+        style={{ fontSize: 'clamp(1.75rem, 3vw, 3rem)', lineHeight: 1.1 }}
       >
         {job.queueNumber}
       </div>
-      <div className="flex flex-col gap-1 min-w-0">
+      <div className="flex flex-col min-w-0">
         <div
-          className="font-semibold text-gray-900 truncate"
-          style={{ fontSize: 'clamp(1.25rem, 2vw, 2rem)' }}
+          className="font-semibold text-gray-800 truncate"
+          style={{ fontSize: 'clamp(1.1rem, 1.8vw, 1.75rem)' }}
         >
           {[job.year, job.make, job.model].filter(Boolean).join(' ')}
         </div>
         <div
-          className="text-gray-500 font-medium"
-          style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
+          className="text-gray-400 font-medium"
+          style={{ fontSize: 'clamp(0.9rem, 1.3vw, 1.25rem)' }}
         >
           Position {position} of {total}
         </div>
@@ -312,13 +302,8 @@ export default function QueueDisplay() {
               className="font-bold text-emerald-800 tracking-wide"
               style={{ fontSize: 'clamp(2rem, 3vw, 3rem)' }}
             >
-              NOW SERVING
-            </span>
-            <span
-              className="ml-auto bg-emerald-600 text-white rounded-full px-3 py-0.5 font-bold"
-              style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
-            >
-              {nowServing.length}
+              NOW SERVING{' '}
+              <span className="font-medium text-emerald-600">({nowServing.length})</span>
             </span>
           </div>
 
@@ -349,13 +334,8 @@ export default function QueueDisplay() {
               className="font-bold text-blue-800 tracking-wide"
               style={{ fontSize: 'clamp(2rem, 3vw, 3rem)' }}
             >
-              IN QUEUE
-            </span>
-            <span
-              className="ml-auto bg-blue-600 text-white rounded-full px-3 py-0.5 font-bold"
-              style={{ fontSize: 'clamp(1rem, 1.5vw, 1.5rem)' }}
-            >
-              {inQueue.length}
+              IN QUEUE{' '}
+              <span className="font-medium text-blue-600">({inQueue.length})</span>
             </span>
           </div>
 
