@@ -15,6 +15,7 @@ import MechanicLoadTable from './components/reports/MechanicLoadTable';
 import EODReportModal from './components/reports/EODReportModal';
 import AdminPanel from './components/admin/AdminPanel';
 import VehicleHistoryModal from './components/history/VehicleHistoryModal';
+import QueueDisplay from './components/queue-display/QueueDisplay';
 
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -43,7 +44,7 @@ function MainApp() {
   );
 }
 
-function App() {
+function AuthenticatedApp() {
   const initRef = useRef(false);
   const user = useAuthStore((s) => s.user);
   const loading = useAuthStore((s) => s.loading);
@@ -107,6 +108,14 @@ function App() {
       {isLocked && <LockScreen />}
     </FirebaseSyncProvider>
   );
+}
+
+function App() {
+  // Public route: queue display for waiting room TV (no auth required)
+  if (window.location.pathname === '/queue-display') {
+    return <QueueDisplay />;
+  }
+  return <AuthenticatedApp />;
 }
 
 export default App;
