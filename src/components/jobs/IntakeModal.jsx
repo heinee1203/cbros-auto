@@ -327,6 +327,10 @@ export default function IntakeModal() {
                   appointmentDate: '',
                   preferredTime: '',
                 }));
+                setErrors((prev) => {
+                  const { appointmentDate, preferredTime, ...rest } = prev;
+                  return rest;
+                });
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 form.intakeType === 'walk-in'
