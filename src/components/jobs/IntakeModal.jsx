@@ -219,12 +219,12 @@ export default function IntakeModal() {
     e.preventDefault();
     const errs = validate();
 
-    // EOD Lock: block intake for closed dates
-    const targetDate = form.appointmentDate
-      ? format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy')
-      : format(new Date(), 'MM/dd/yyyy');
-    if (closedDates.includes(targetDate)) {
-      errs.appointmentDate = 'This date has been closed out. Please select another date.';
+    // EOD Lock: block intake for closed dates (only for scheduled appointments)
+    if (form.intakeType === 'scheduled' && form.appointmentDate) {
+      const targetDate = format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy');
+      if (closedDates.includes(targetDate)) {
+        errs.appointmentDate = 'This date has been closed out. Please select another date.';
+      }
     }
 
     if (Object.keys(errs).length) {
@@ -676,6 +676,9 @@ export default function IntakeModal() {
                   disabled={form.intakeType === 'walk-in'}
                   className={inputCls('appointmentDate')}
                 />
+                {errors.appointmentDate && (
+                  <p className="text-red-500 text-xs mt-1">{errors.appointmentDate}</p>
+                )}
               </div>
               <div className={form.intakeType === 'walk-in' ? 'opacity-50 pointer-events-none' : ''}>
                 <label className={labelCls}>Preferred Time</label>
