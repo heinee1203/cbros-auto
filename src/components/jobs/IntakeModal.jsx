@@ -219,12 +219,18 @@ export default function IntakeModal() {
     e.preventDefault();
     const errs = validate();
 
-    // EOD Lock: block intake for closed dates
-    const targetDate = form.appointmentDate
-      ? format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy')
-      : format(new Date(), 'MM/dd/yyyy');
-    if (closedDates.includes(targetDate)) {
-      errs.appointmentDate = 'This date has been closed out. Please select another date.';
+    // Walk-in: clear any scheduling-related errors (fields are disabled)
+    if (form.intakeType === 'walk-in') {
+      delete errs.appointmentDate;
+      delete errs.preferredTime;
+    }
+
+    // EOD Lock: block intake for closed dates (only for scheduled appointments)
+    if (form.intakeType === 'scheduled' && form.appointmentDate) {
+      const targetDate = format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy');
+      if (closedDates.includes(targetDate)) {
+        errs.appointmentDate = 'This date has been closed out. Please select another date.';
+      }
     }
 
     if (Object.keys(errs).length) {
@@ -314,7 +320,7 @@ export default function IntakeModal() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-5">
           {/* Walk-in vs Scheduled Toggle */}
           <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 mr-2">Intake Type:</span>
@@ -327,6 +333,10 @@ export default function IntakeModal() {
                   appointmentDate: '',
                   preferredTime: '',
                 }));
+                setErrors((prev) => {
+                  const { appointmentDate, preferredTime, ...rest } = prev;
+                  return rest;
+                });
               }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
                 form.intakeType === 'walk-in'
@@ -674,8 +684,11 @@ export default function IntakeModal() {
                   value={form.appointmentDate}
                   onChange={set2('appointmentDate')}
                   disabled={form.intakeType === 'walk-in'}
-                  className={inputCls('appointmentDate')}
+                  className={form.intakeType === 'walk-in' ? inputCls('') : inputCls('appointmentDate')}
                 />
+                {form.intakeType !== 'walk-in' && errors.appointmentDate && (
+                  <p className="text-red-500 text-xs mt-1">{errors.appointmentDate}</p>
+                )}
               </div>
               <div className={form.intakeType === 'walk-in' ? 'opacity-50 pointer-events-none' : ''}>
                 <label className={labelCls}>Preferred Time</label>
@@ -683,7 +696,7 @@ export default function IntakeModal() {
                   value={form.preferredTime}
                   onChange={set2('preferredTime')}
                   disabled={form.intakeType === 'walk-in'}
-                  className={inputCls('preferredTime')}
+                  className={form.intakeType === 'walk-in' ? inputCls('') : inputCls('preferredTime')}
                 >
                   <option value="">Select time...</option>
                   {timeSlots.map((slot) => (
