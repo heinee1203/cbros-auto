@@ -219,6 +219,12 @@ export default function IntakeModal() {
     e.preventDefault();
     const errs = validate();
 
+    // Walk-in: clear any scheduling-related errors (fields are disabled)
+    if (form.intakeType === 'walk-in') {
+      delete errs.appointmentDate;
+      delete errs.preferredTime;
+    }
+
     // EOD Lock: block intake for closed dates (only for scheduled appointments)
     if (form.intakeType === 'scheduled' && form.appointmentDate) {
       const targetDate = format(new Date(form.appointmentDate + 'T00:00:00'), 'MM/dd/yyyy');
@@ -678,9 +684,9 @@ export default function IntakeModal() {
                   value={form.appointmentDate}
                   onChange={set2('appointmentDate')}
                   disabled={form.intakeType === 'walk-in'}
-                  className={inputCls('appointmentDate')}
+                  className={form.intakeType === 'walk-in' ? inputCls('') : inputCls('appointmentDate')}
                 />
-                {errors.appointmentDate && (
+                {form.intakeType !== 'walk-in' && errors.appointmentDate && (
                   <p className="text-red-500 text-xs mt-1">{errors.appointmentDate}</p>
                 )}
               </div>
@@ -690,7 +696,7 @@ export default function IntakeModal() {
                   value={form.preferredTime}
                   onChange={set2('preferredTime')}
                   disabled={form.intakeType === 'walk-in'}
-                  className={inputCls('preferredTime')}
+                  className={form.intakeType === 'walk-in' ? inputCls('') : inputCls('preferredTime')}
                 >
                   <option value="">Select time...</option>
                   {timeSlots.map((slot) => (
