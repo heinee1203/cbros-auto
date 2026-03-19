@@ -320,7 +320,7 @@ export default function IntakeModal() {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-5">
           {/* Walk-in vs Scheduled Toggle */}
           <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700">
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 mr-2">Intake Type:</span>
